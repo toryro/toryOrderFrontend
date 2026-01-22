@@ -3,20 +3,18 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 
 function OrderPage() {
-  const { token } = useParams(); // URL에서 토큰 가져오기
+  const { token } = useParams(); 
   const [store, setStore] = useState(null);
   const [tableInfo, setTableInfo] = useState(null);
-  const [cart, setCart] = useState({}); // 장바구니 { 메뉴ID: 개수 }
+  const [cart, setCart] = useState({}); 
 
-  // 1. 화면이 켜지면 백엔드에서 정보 가져오기
+  // 1. 초기 데이터 로드
   useEffect(() => {
     async function fetchData() {
       try {
-        // A. 토큰으로 "이게 어느 가게지?" 확인
         const tableRes = await axios.get(`http://127.0.0.1:8000/tables/by-token/${token}`);
         setTableInfo(tableRes.data);
 
-        // B. 가게 ID를 알았으니 "메뉴판" 가져오기
         const storeRes = await axios.get(`http://127.0.0.1:8000/stores/${tableRes.data.store_id}`);
         setStore(storeRes.data);
       } catch (error) {
@@ -27,7 +25,7 @@ function OrderPage() {
     fetchData();
   }, [token]);
 
-  // 2. 장바구니 담기 함수
+  // 2. 장바구니 담기
   const addToCart = (menuId) => {
     setCart(prev => ({
       ...prev,
@@ -35,33 +33,53 @@ function OrderPage() {
     }));
   };
 
-  // 3. 주문하기 함수 (아직 콘솔에만 출력)
-  const placeOrder = () => {
+  // 3. 주문하기 (Step 4: 서버 전송 로직 포함!)
+  const placeOrder = async () => {
+    console.log("👉 버튼 눌림! 함수 시작!"); 
+
+    // 장바구니 데이터 변환
     const orderItems = Object.entries(cart).map(([menuId, qty]) => ({
         menu_id: parseInt(menuId),
-        quantity: qty
+        quantity: qty,
+        options: {} 
     }));
     
+    // 유효성 검사
     if (orderItems.length === 0) return alert("메뉴를 선택해주세요!");
-    
-    // 다음 단계에서 실제 주문 API를 연결할 예정입니다.
-    console.log("주문 데이터:", {
-        store_id: tableInfo.store_id,
-        table_id: tableInfo.table_id,
-        items: orderItems
-    });
-    alert("주문이 전송되었습니다! (콘솔 확인)");
+    if (!tableInfo) return alert("테이블 정보가 없습니다.");
+
+    try {
+        const payload = {
+            store_id: tableInfo.store_id,
+            table_id: tableInfo.table_id,
+            items: orderItems
+        };
+        
+        console.log("📡 서버로 보낼 데이터:", payload);
+
+        // --- 여기가 핵심! 실제 서버로 요청 보내기 ---
+        const response = await axios.post('http://127.0.0.1:8000/orders/', payload);
+        
+        // 성공 시
+        if (response.status === 200) {
+            console.log("✅ 서버 응답 성공:", response.data);
+            alert(`주문이 완료되었습니다!\n주문번호: ${response.data.id}`);
+            setCart({}); // 장바구니 비우기
+        }
+    } catch (error) {
+        console.error("❌ 주문 에러:", error);
+        alert("주문에 실패했습니다. 백엔드가 켜져있는지 확인해주세요.");
+    }
   };
 
   if (!store || !tableInfo) return <div>메뉴판 로딩중...</div>;
 
   return (
-    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
+    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto', paddingBottom: '100px' }}>
       <h1>🏠 {store.name}</h1>
       <p>📍 좌석: {tableInfo.label}</p>
       <hr />
       
-      {/* 카테고리별 메뉴 리스트 */}
       {store.categories.map(cat => (
         <div key={cat.id}>
           <h3>📂 {cat.name}</h3>
@@ -73,8 +91,7 @@ function OrderPage() {
                   <div style={{ color: '#888' }}>{menu.price}원</div>
                 </div>
                 <div>
-                   {/* 장바구니 버튼 */}
-                  <button onClick={() => addToCart(menu.id)} style={{ padding: '5px 10px' }}>
+                  <button onClick={() => addToCart(menu.id)} style={{ padding: '5px 10px', cursor: 'pointer' }}>
                     담기 (+{cart[menu.id] || 0})
                   </button>
                 </div>
@@ -84,11 +101,20 @@ function OrderPage() {
         </div>
       ))}
 
-      {/* 하단 주문 버튼 */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', padding: '20px', background: 'white', borderTop: '1px solid #ccc' }}>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', padding: '20px', background: 'white', borderTop: '1px solid #ccc', boxSizing: 'border-box' }}>
         <button 
-            onClick={placeOrder}
-            style={{ width: '100%', padding: '15px', background: 'orange', color: 'white', border: 'none', fontSize: '18px', fontWeight: 'bold' }}>
+            onClick={placeOrder} 
+            style={{ 
+              width: '100%', 
+              padding: '15px', 
+              background: 'orange', 
+              color: 'white', 
+              border: 'none', 
+              fontSize: '18px', 
+              fontWeight: 'bold',
+              cursor: 'pointer'
+            }}
+        >
           주문하기
         </button>
       </div>
