@@ -1,9 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import OrderPage from './OrderPage';
-import KitchenPage from './KitchenPage';
-import AdminPage from './AdminPage';
-import SuperAdminPage from './SuperAdminPage';
-import LoginPage from './LoginPage'; // [새로 추가됨]
+import OrderPage from './pages/OrderPage';
+import KitchenPage from './pages/KitchenPage';
+import AdminPage from './pages/AdminPage';
+import LoginPage from './pages/LoginPage'; // [새로 추가됨]
+import SuperAdminPage from "./pages/SuperAdminPage"; // [추가] 불러오기
 
 // [보안 요원] 토큰(출입증)이 없으면 로그인 페이지로 쫓아냄
 function PrivateRoute({ children }) {
@@ -20,13 +20,24 @@ function App() {
           {/* 1. 누구나 접속 가능한 페이지 */}
           {/* ============================== */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/order/:qr_token" element={<OrderPage />} />
+          {/*<Route path="/order/:qr_token" element={<OrderPage />} />*/}
+          <Route path="/order/:token" element={<OrderPage />} />
 
           {/* ============================== */}
           {/* 2. 로그인해야 접속 가능한 페이지 (보안 적용) */}
           {/* ============================== */}
           
-          {/* 사장님 관리 페이지 */}
+          {/* 슈퍼 관리자 페이지 (보안 적용!) */}
+          <Route 
+            path="/super-admin" 
+            element={
+              <PrivateRoute>
+                <SuperAdminPage />
+              </PrivateRoute>
+            } 
+          />
+          
+          {/* 사장님 가게 관리 페이지 (보안 적용!) */}
           <Route 
             path="/admin/:storeId" 
             element={

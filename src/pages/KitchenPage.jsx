@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 
 // [설정] 본인 컴퓨터 IP 확인 (로컬 테스트 시 localhost 추천)
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../config"; // IP 설정 가져오기
 
 function KitchenPage() {
   const { storeId } = useParams();
