@@ -74,7 +74,9 @@ function KitchenPage() {
               {/* 카드 헤더 */}
               <div className="bg-slate-700 p-3 flex justify-between items-center border-b border-slate-600">
                 {/* table_id 표시 부분 (이전 코드에 맞게 수정) */}
-                <span className="text-2xl font-extrabold text-white">No. {order.table_id}</span>
+                <span className="text-xl font-bold text-indigo-600">
+                  {order.table_name}
+                </span>
                 {/* 시간 표시 (created_at이 없으면 에러 안나게 처리) */}
                 <span className="text-xs text-gray-400 font-mono">
                     {order.created_at ? order.created_at.substring(11, 16) : ""}
