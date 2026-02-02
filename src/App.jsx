@@ -1,82 +1,101 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import OrderPage from './pages/OrderPage';
-import KitchenPage from './pages/KitchenPage';
-import AdminPage from './pages/AdminPage';
-import LoginPage from './pages/LoginPage'; // [새로 추가됨]
-import SuperAdminPage from "./pages/SuperAdminPage"; // [추가] 불러오기
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { API_BASE_URL } from "./config"; // config 파일 경로 확인 필요
 
-// [보안 요원] 토큰(출입증)이 없으면 로그인 페이지로 쫓아냄
-function PrivateRoute({ children }) {
-  const token = localStorage.getItem("token");
-  return token ? children : <Navigate to="/login" />;
+// 페이지 컴포넌트 임포트 (파일 경로에 맞게 수정하세요)
+import LoginPage from "./pages/LoginPage";
+import AdminPage from "./pages/AdminPage";
+import KitchenPage from "./pages/KitchenPage";
+import OrderPage from "./pages/OrderPage"; // 모바일 주문 페이지
+
+// === 🛡️ 보호된 라우트 (권한 체크) ===
+function ProtectedRoute({ children, allowedRoles }) {
+    const token = localStorage.getItem("token");
+    const [isLoading, setIsLoading] = useState(true);
+    const [isAllowed, setIsAllowed] = useState(false);
+
+    useEffect(() => {
+        if (!token) {
+            setIsLoading(false);
+            return;
+        }
+
+        // 내 정보 조회하여 권한 확인
+        axios.get(`${API_BASE_URL}/users/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(res => {
+            const userRole = res.data.role;
+            // 허용된 역할 목록에 내 역할이 있는지 확인
+            if (allowedRoles.includes(userRole)) {
+                setIsAllowed(true);
+            }
+            setIsLoading(false);
+        })
+        .catch((err) => {
+            console.error("Auth Error:", err);
+            localStorage.removeItem("token"); // 토큰 만료시 삭제
+            setIsLoading(false);
+        });
+    }, [token, allowedRoles]);
+
+    if (!token) return <Navigate to="/" replace />;
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center">🔒 권한 확인 중...</div>;
+    
+    // 권한이 없으면 에러 메시지 표시
+    if (!isAllowed) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
+                <h1 className="text-2xl font-bold text-red-600 mb-4">⛔ 접근 권한이 없습니다.</h1>
+                <p className="text-gray-600 mb-6">현재 계정으로는 이 페이지에 접근할 수 없습니다.</p>
+                <button 
+                    onClick={() => { localStorage.removeItem("token"); window.location.href = "/"; }}
+                    className="bg-gray-800 text-white px-6 py-2 rounded-lg font-bold"
+                >
+                    로그인 화면으로 돌아가기
+                </button>
+            </div>
+        );
+    }
+
+    return children;
 }
 
+// === 🚦 메인 앱 라우터 ===
 function App() {
-  return (
-    <div className="antialiased text-gray-900"> {/* 기존 스타일 유지 */}
-      <BrowserRouter>
-        <Routes>
-          {/* ============================== */}
-          {/* 1. 누구나 접속 가능한 페이지 */}
-          {/* ============================== */}
-          <Route path="/login" element={<LoginPage />} />
-          {/*<Route path="/order/:qr_token" element={<OrderPage />} />*/}
-          <Route path="/order/:token" element={<OrderPage />} />
+    return (
+        <BrowserRouter>
+            <Routes>
+                {/* 1. 로그인 페이지 (누구나 접근 가능) */}
+                <Route path="/" element={<LoginPage />} />
 
-          {/* ============================== */}
-          {/* 2. 로그인해야 접속 가능한 페이지 (보안 적용) */}
-          {/* ============================== */}
-          
-          {/* 슈퍼 관리자 페이지 (보안 적용!) */}
-          <Route 
-            path="/super-admin" 
-            element={
-              <PrivateRoute>
-                <SuperAdminPage />
-              </PrivateRoute>
-            } 
-          />
-          
-          {/* 사장님 가게 관리 페이지 (보안 적용!) */}
-          <Route 
-            path="/admin/:storeId" 
-            element={
-              <PrivateRoute>
-                <AdminPage />
-              </PrivateRoute>
-            } 
-          />
+                {/* 2. 손님용 주문 페이지 (QR 토큰으로 접근) */}
+                <Route path="/order/:token" element={<OrderPage />} />
 
-          {/* 주방 화면 (외부인이 보면 안되니까 보호) */}
-          <Route 
-            path="/kitchen/:storeId" 
-            element={
-              <PrivateRoute>
-                <KitchenPage />
-              </PrivateRoute>
-            } 
-          />
+                {/* 3. 관리자 페이지 (통합) */}
+                {/* 기존엔 STAFF가 없어서 막혔던 부분입니다. allowedRoles에 'STAFF', 'GROUP_ADMIN'을 추가했습니다. */}
+                <Route 
+                    path="/admin/:storeId?" 
+                    element={
+                        <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'GROUP_ADMIN', 'STORE_OWNER', 'STAFF']}>
+                            <AdminPage />
+                        </ProtectedRoute>
+                    } 
+                />
 
-          {/* 슈퍼 관리자 (당연히 보호) */}
-          <Route 
-            path="/super-admin" 
-            element={
-              <PrivateRoute>
-                <SuperAdminPage />
-              </PrivateRoute>
-            } 
-          />
-          
-          {/* ============================== */}
-          {/* 3. 기본 경로 처리 */}
-          {/* ============================== */}
-          {/* 주소 없이 들어오면 로그인 화면으로 보냄 */}
-          <Route path="/" element={<Navigate to="/login" />} />
-
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+                {/* 4. 주방(KDS) 화면 */}
+                <Route 
+                    path="/kitchen/:storeId" 
+                    element={
+                        <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'GROUP_ADMIN', 'STORE_OWNER', 'STAFF']}>
+                            <KitchenPage />
+                        </ProtectedRoute>
+                    } 
+                />
+            </Routes>
+        </BrowserRouter>
+    );
 }
 
 export default App;

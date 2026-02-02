@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { API_BASE_URL } from "../config"; // IP 주소 설정 가져오기
+import { API_BASE_URL } from "../config";
 
 function LoginPage() {
   const [email, setEmail] = useState("");
@@ -10,7 +10,7 @@ function LoginPage() {
 
   const handleLogin = async () => {
     try {
-      // 1. 로그인 요청 (토큰 발급)
+      // 1. 로그인 요청
       const formData = new URLSearchParams();
       formData.append("username", email);
       formData.append("password", password);
@@ -21,7 +21,7 @@ function LoginPage() {
       // 2. 토큰 저장
       localStorage.setItem("token", token);
 
-      // 3. [핵심] "나 누구야?" 확인 (내 정보 조회)
+      // 3. 내 정보 조회
       const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -29,22 +29,38 @@ function LoginPage() {
       const user = userRes.data;
       console.log("로그인 유저 정보:", user);
 
-      // 4. 역할(Role)에 따른 교통정리 🚦
+      // 4. 역할(Role)에 따른 페이지 이동 🚦
       if (user.role === "SUPER_ADMIN") {
-        // 슈퍼 관리자 -> 대시보드
         alert("슈퍼 관리자님 환영합니다! 👑");
-        navigate("/super-admin");
-      } else if (user.role === "STORE_OWNER") {
-        // 사장님 -> 내 가게 관리 페이지
+        navigate("/admin"); // 슈퍼관리자도 일단 관리자 페이지로 이동 (혹은 별도 페이지)
+      } 
+      else if (user.role === "STORE_OWNER") {
         if (user.store_id) {
             alert("사장님, 오늘도 대박나세요! 💰");
             navigate(`/admin/${user.store_id}`);
         } else {
-            alert("할당된 가게가 없습니다. 관리자에게 문의하세요.");
+            alert("할당된 가게가 없습니다.");
         }
-      } else {
-        // 그 외 (그룹 관리자 등)
+      } 
+      // 👇 [신규 추가] 직원일 경우
+      else if (user.role === "STAFF") {
+        if (user.store_id) {
+            // 직원은 사장님과 같은 주소로 가지만, AdminPage 내부에서 '직원용 화면'을 보여줍니다.
+            alert(`환영합니다, ${user.name}님! 오늘도 화이팅! 💪`);
+            navigate(`/admin/${user.store_id}`);
+        } else {
+            alert("소속된 매장 정보가 없습니다.");
+        }
+      }
+      // 👇 [신규 추가] 그룹(본사) 관리자일 경우
+      else if (user.role === "GROUP_ADMIN") {
+        alert("본사 관리자 모드로 접속합니다.");
+        navigate("/admin"); // storeId 없이 접속하면 대시보드가 뜹니다.
+      }
+      else {
+        // 그 외 (권한 없음)
         alert("접근 권한이 없는 역할입니다.");
+        localStorage.removeItem("token"); // 토큰 삭제
       }
 
     } catch (err) {
@@ -63,7 +79,7 @@ function LoginPage() {
         <div className="space-y-4">
           <input
             type="text"
-            placeholder="이메일 (admin@tory.com)"
+            placeholder="이메일"
             className="w-full border p-3 rounded"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -74,7 +90,7 @@ function LoginPage() {
             className="w-full border p-3 rounded"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleLogin()} // 엔터키 로그인 지원
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()} 
           />
           <button
             onClick={handleLogin}

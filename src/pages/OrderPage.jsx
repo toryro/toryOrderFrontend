@@ -17,6 +17,42 @@ function OrderPage() {
   
   const [isCartOpen, setIsCartOpen] = useState(false);
 
+  // 직원 호출 모달 상태
+  const [isCallModalOpen, setIsCallModalOpen] = useState(false);
+
+  // [신규] 옵션 그룹핑 헬퍼 함수 (장바구니 표시 & 주문 전송 공용)
+  const getGroupedOptions = (options) => {
+      const grouped = [];
+      options.forEach(opt => {
+          const groupName = opt.group_name || '옵션';
+          
+          // 직전에 처리한 그룹과 이름이 같으면, 그 그룹의 옵션 목록에 추가
+          const lastGroup = grouped[grouped.length - 1];
+          if (lastGroup && lastGroup.name === groupName) {
+              lastGroup.items.push(opt.name);
+          } else {
+              // 새로운 그룹이면 새로 추가
+              grouped.push({ name: groupName, items: [opt.name] });
+          }
+      });
+      return grouped;
+  };
+
+  // 호출 요청 핸들러
+  const handleStaffCall = async (message) => {
+      try {
+          await axios.post(`${API_BASE_URL}/stores/${store.id}/calls`, {
+              table_id: tableInfo.id,
+              message: message
+          });
+          alert("🔔 직원을 호출했습니다. 잠시만 기다려주세요.");
+          setIsCallModalOpen(false);
+      } catch (err) {
+          console.error(err);
+          alert("호출 실패");
+      }
+  };
+
   useEffect(() => {
     const fetchInfo = async () => {
       try {
@@ -39,12 +75,23 @@ function OrderPage() {
     if (menu.is_sold_out) return;
 
     if (menu.option_groups && menu.option_groups.length > 0) {
-      setSelectedMenu(menu);
+      // 옵션 그룹 순서대로 정렬
+      const sortedGroups = [...menu.option_groups].sort((a,b) => a.order_index - b.order_index);
+      const menuWithSortedGroups = { ...menu, option_groups: sortedGroups };
+      
+      setSelectedMenu(menuWithSortedGroups);
+
+      // 기본값(Default) 선택 로직
       const defaultOptions = new Set();
-      menu.option_groups.forEach(group => {
-        group.options.forEach(opt => {
-          if (opt.is_default) defaultOptions.add(opt.id);
-        });
+      sortedGroups.forEach(group => {
+        if (group.is_single_select || group.is_required) {
+            const defaultOpt = group.options.find(o => o.is_default);
+            if (!defaultOpt && group.is_single_select && group.is_required && group.options.length > 0) {
+                defaultOptions.add(group.options[0].id);
+            } else if (defaultOpt) {
+                defaultOptions.add(defaultOpt.id);
+            }
+        }
       });
       setSelectedOptions(defaultOptions);
       setIsModalOpen(true);
@@ -55,42 +102,50 @@ function OrderPage() {
 
   const toggleOption = (group, optionId) => {
     const newOptions = new Set(selectedOptions);
+
     if (group.is_single_select) {
       group.options.forEach(opt => { if (newOptions.has(opt.id)) newOptions.delete(opt.id); });
       newOptions.add(optionId);
     } else {
-      if (newOptions.has(optionId)) newOptions.delete(optionId);
-      else newOptions.add(optionId);
+      if (newOptions.has(optionId)) {
+          newOptions.delete(optionId);
+      } else {
+          if (group.max_select > 0) {
+              const currentCount = Array.from(newOptions).filter(id => 
+                  group.options.some(opt => opt.id === id)
+              ).length;
+              
+              if (currentCount >= group.max_select) {
+                  return alert(`이 옵션은 최대 ${group.max_select}개까지만 선택 가능합니다.`);
+              }
+          }
+          newOptions.add(optionId);
+      }
     }
     setSelectedOptions(newOptions);
   };
 
-  // [수정됨] 장바구니 담기 (중복 체크 후 수량 합치기)
   const addToCart = (menu, options) => {
     const optionsPrice = options.reduce((sum, opt) => sum + opt.price, 0);
     const unitPrice = menu.price + optionsPrice;
 
-    // 옵션 구성이 완전히 같은지 비교하기 위해 정렬된 ID 문자열 생성
     const currentOptionIds = options.map(o => o.id).sort().join(',');
 
-    // 이미 장바구니에 같은 메뉴+같은 옵션이 있는지 찾기
     const existingItemIndex = cart.findIndex(item => {
         const itemOptionIds = item.options.map(o => o.id).sort().join(',');
         return item.menuId === menu.id && itemOptionIds === currentOptionIds;
     });
 
     if (existingItemIndex !== -1) {
-        // 이미 있으면 수량만 증가
         const newCart = [...cart];
         newCart[existingItemIndex].quantity += 1;
         setCart(newCart);
     } else {
-        // 없으면 새로 추가
         const newItem = {
             id: Date.now(),
             menuId: menu.id,
             name: menu.name,
-            price: unitPrice, // 옵션 포함 단가
+            price: unitPrice,
             quantity: 1,
             options: options
         };
@@ -99,16 +154,14 @@ function OrderPage() {
     setIsModalOpen(false);
   };
 
-  // [신규] 장바구니 수량 변경 핸들러 (- +)
   const updateQuantity = (itemId, delta) => {
       setCart(prev => prev.map(item => {
           if (item.id === itemId) {
               return { ...item, quantity: Math.max(0, item.quantity + delta) };
           }
           return item;
-      }).filter(item => item.quantity > 0)); // 수량이 0이면 삭제
+      }).filter(item => item.quantity > 0));
       
-      // 다 지워졌으면 장바구니 닫기
       if (cart.length === 1 && cart[0].quantity + delta <= 0) setIsCartOpen(false);
   };
 
@@ -119,9 +172,15 @@ function OrderPage() {
         if (!hasSelected) return alert(`'${group.name}' 옵션은 필수입니다!`);
       }
     }
+    
+    // 그룹 이름을 포함하여 저장
     const optionsList = [];
     selectedMenu.option_groups.forEach(group => {
-        group.options.forEach(opt => { if (selectedOptions.has(opt.id)) optionsList.push(opt); });
+        group.options.forEach(opt => { 
+            if (selectedOptions.has(opt.id)) {
+                optionsList.push({ ...opt, group_name: group.name }); 
+            }
+        });
     });
     addToCart(selectedMenu, optionsList);
   };
@@ -134,24 +193,39 @@ function OrderPage() {
       const orderData = {
         store_id: store.id,
         table_id: tableInfo.id,
-        items: cart.map(item => ({
-          menu_id: item.menuId,
-          quantity: item.quantity,
-          options: item.options.map(o => ({ name: o.name, price: o.price }))
-        }))
+        items: cart.map(item => {
+            // 1. 옵션 그룹핑 로직 사용
+            const groupedOptions = getGroupedOptions(item.options);
+
+            // 2. 문자열로 변환 (줄바꿈 \n 적용!)
+            const optionsDesc = groupedOptions
+                .map(g => `${g.name} - ${g.items.join(", ")}`)
+                .join("\n"); // 🔥 여기서 줄바꿈 문자로 연결
+
+            return {
+                menu_id: item.menuId,
+                quantity: item.quantity,
+                options: item.options.map(o => ({ name: o.name, price: o.price })),
+                options_desc: optionsDesc,
+                price: item.price
+            };
+        })
       };
+
       await axios.post(`${API_BASE_URL}/orders/`, orderData);
       alert("주문이 접수되었습니다! 👨‍🍳");
       setCart([]); 
       setIsCartOpen(false);
-    } catch (err) { alert("주문 실패 ㅠㅠ"); }
+    } catch (err) { 
+        console.error(err);
+        alert("주문 실패 ㅠㅠ"); 
+    }
   };
 
   if (loading || !store) return <div className="p-10 text-center">⏳ 메뉴판 불러오는 중...</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      
       {/* 상단 헤더 */}
       <div className="bg-white shadow-sm sticky top-0 z-10 px-4 py-4 flex justify-between items-center">
         <div>
@@ -181,7 +255,6 @@ function OrderPage() {
                           onClick={() => handleMenuClick(menu)}
                           className={`bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex gap-4 cursor-pointer transition active:scale-95 ${menu.is_sold_out ? 'opacity-60 grayscale' : 'hover:border-indigo-200'}`}
                         >
-                          {/* 이미지 */}
                           <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden shrink-0 relative">
                             {menu.image_url ? (
                                 <img src={menu.image_url} className="w-full h-full object-cover" alt={menu.name} />
@@ -191,7 +264,6 @@ function OrderPage() {
                             {menu.is_sold_out && <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-bold">품절</div>}
                           </div>
 
-                          {/* 텍스트 영역 */}
                           <div className="flex-1 flex flex-col justify-between py-1">
                             <div className="flex justify-between items-start gap-2">
                                 <h3 className="font-bold text-lg text-gray-900 leading-tight">{menu.name}</h3>
@@ -218,14 +290,44 @@ function OrderPage() {
             })}
       </div>
 
+      {/* 직원 호출 플로팅 버튼 */}
+      <button 
+          onClick={() => setIsCallModalOpen(true)}
+          className="fixed bottom-24 right-4 bg-yellow-500 hover:bg-yellow-600 text-white w-14 h-14 rounded-full shadow-lg font-bold z-40 flex flex-col items-center justify-center animate-bounce-slow"
+      >
+          <span className="text-xl">🔔</span>
+          <span className="text-[10px]">호출</span>
+      </button>
+
+      {/* 직원 호출 모달 */}
+      {isCallModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+              <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+                  <div className="bg-gray-800 text-white p-4 font-bold text-lg flex justify-between items-center">
+                      <span>🔔 직원 호출</span>
+                      <button onClick={() => setIsCallModalOpen(false)} className="p-1 hover:bg-gray-700 rounded">✕</button>
+                  </div>
+                  <div className="p-6">
+                      <p className="text-center text-gray-500 mb-6">필요하신 서비스를 선택해주세요.</p>
+                      <div className="grid grid-cols-2 gap-3">
+                          <CallOptionButton label="물 주세요 💧" onClick={() => handleStaffCall("물")} />
+                          <CallOptionButton label="앞치마 주세요 👕" onClick={() => handleStaffCall("앞치마")} />
+                          <CallOptionButton label="반찬 리필 🍱" onClick={() => handleStaffCall("반찬 리필")} />
+                          <CallOptionButton label="물티슈 주세요 🧻" onClick={() => handleStaffCall("물티슈")} />
+                          <CallOptionButton label="수저 주세요 🥄" onClick={() => handleStaffCall("수저")} />
+                          <CallOptionButton label="직원만 호출 🙋" onClick={() => handleStaffCall("직원 호출")} isPrimary />
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* 장바구니 & 주문하기 바 */}
       {cart.length > 0 && (
         <>
             {isCartOpen && <div className="fixed inset-0 bg-black/50 z-20" onClick={() => setIsCartOpen(false)} />}
 
             <div className={`fixed bottom-0 left-0 right-0 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-30 transition-transform duration-300 rounded-t-2xl ${isCartOpen ? 'translate-y-0' : 'translate-y-[0]'}`}>
-                
-                {/* 1. 주문 목록 (그룹핑 및 수량 조절 적용) */}
                 {isCartOpen && (
                     <div className="max-h-[50vh] overflow-y-auto p-4 space-y-3 bg-gray-50">
                         <div className="flex justify-between items-center mb-2">
@@ -233,67 +335,50 @@ function OrderPage() {
                             <button onClick={()=>setIsCartOpen(false)} className="text-sm text-gray-500">닫기 🔽</button>
                         </div>
                         {cart.map((item) => (
-                            <div key={item.id} className="flex justify-between items-center bg-white p-3 rounded-lg border shadow-sm">
+                            <div key={item.id} className="flex justify-between items-start bg-white p-3 rounded-lg border shadow-sm">
                                 <div className="flex-1">
                                     <div className="flex items-center gap-2">
                                         <p className="font-bold text-gray-800">{item.name}</p>
                                         <span className="text-sm font-bold text-indigo-600">x {item.quantity}</span>
                                     </div>
+                                    
+                                    {/* 🔥 [신규] 장바구니에서 옵션 그룹별로 줄바꿈하여 표시 */}
                                     {item.options.length > 0 && (
-                                        <p className="text-xs text-gray-500">
-                                            {item.options.map(o => o.name).join(", ")}
-                                        </p>
+                                        <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                                            {getGroupedOptions(item.options).map((g, idx) => (
+                                                <div key={idx}>
+                                                    <span className="font-semibold text-gray-600">· {g.name} :</span> {g.items.join(", ")}
+                                                </div>
+                                            ))}
+                                        </div>
                                     )}
-                                    <p className="text-sm text-gray-600 mt-1">{(item.price * item.quantity).toLocaleString()}원</p>
+                                    
+                                    <p className="text-sm text-gray-600 mt-2 font-bold">{(item.price * item.quantity).toLocaleString()}원</p>
                                 </div>
-                                
-                                {/* 수량 조절 버튼 [- 1 +] */}
                                 <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-2 py-1 ml-2">
-                                    <button 
-                                        onClick={() => updateQuantity(item.id, -1)}
-                                        className="w-6 h-6 flex items-center justify-center text-gray-500 font-bold hover:text-red-500"
-                                    >
-                                        －
-                                    </button>
+                                    <button onClick={() => updateQuantity(item.id, -1)} className="w-6 h-6 flex items-center justify-center text-gray-500 font-bold hover:text-red-500">－</button>
                                     <span className="font-bold text-sm w-4 text-center">{item.quantity}</span>
-                                    <button 
-                                        onClick={() => updateQuantity(item.id, 1)}
-                                        className="w-6 h-6 flex items-center justify-center text-gray-500 font-bold hover:text-blue-500"
-                                    >
-                                        ＋
-                                    </button>
+                                    <button onClick={() => updateQuantity(item.id, 1)} className="w-6 h-6 flex items-center justify-center text-gray-500 font-bold hover:text-blue-500">＋</button>
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
-
-                {/* 2. 하단 결제 버튼 */}
-                <div 
-                    className="p-4 border-t bg-white cursor-pointer hover:bg-gray-50 transition" 
-                    onClick={() => setIsCartOpen(!isCartOpen)} 
-                >
+                <div className="p-4 border-t bg-white cursor-pointer hover:bg-gray-50 transition" onClick={() => setIsCartOpen(!isCartOpen)}>
                     <div className="max-w-lg mx-auto flex justify-between items-center mb-3">
                         <div className="flex items-center gap-2">
                             <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-bold">{cart.reduce((a,b)=>a+b.quantity,0)}개</span>
                             <span className="text-xs text-gray-400">목록 보기 ▲</span>
                         </div>
-                        <span className="font-extrabold text-xl text-indigo-600">
-                            {cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString()}원
-                        </span>
+                        <span className="font-extrabold text-xl text-indigo-600">{cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString()}원</span>
                     </div>
-                    <button 
-                        onClick={handleOrder}
-                        className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-lg shadow-lg hover:bg-indigo-700 active:scale-95 transition"
-                    >
-                        주문하기
-                    </button>
+                    <button onClick={handleOrder} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-lg shadow-lg hover:bg-indigo-700 active:scale-95 transition">주문하기</button>
                 </div>
             </div>
         </>
       )}
 
-      {/* 옵션 모달 (기존 유지) */}
+      {/* 메뉴 옵션 모달 */}
       {isModalOpen && selectedMenu && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
             <div className="bg-white w-full max-w-lg rounded-t-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-slideUp">
@@ -311,6 +396,7 @@ function OrderPage() {
                                 {group.name} 
                                 {group.is_required && <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full font-bold">필수</span>}
                                 {group.is_single_select && <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full border">1개만 선택</span>}
+                                {!group.is_single_select && group.max_select > 0 && <span className="text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full font-bold">최대 {group.max_select}개</span>}
                             </h4>
                             <div className="space-y-2">
                                 {group.options.map(opt => {
@@ -349,6 +435,21 @@ function OrderPage() {
       )}
     </div>
   );
+}
+
+function CallOptionButton({ label, onClick, isPrimary }) {
+    return (
+        <button 
+            onClick={onClick} 
+            className={`border rounded-xl p-4 font-bold transition flex items-center justify-center text-center h-20 shadow-sm
+                ${isPrimary 
+                    ? "bg-yellow-50 border-yellow-400 text-yellow-800 hover:bg-yellow-100" 
+                    : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-400"
+                }`}
+        >
+            {label}
+        </button>
+    );
 }
 
 export default OrderPage;
