@@ -6,13 +6,12 @@ import { API_BASE_URL } from "../config";
 function KitchenPage() {
     const { storeId } = useParams();
     
-    // 상태 관리
     const [orders, setOrders] = useState([]);         
     const [staffCalls, setStaffCalls] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [isConnected, setIsConnected] = useState(false);
     
-    // 오디오 (브라우저 정책상 사용자 상호작용 필요)
+    // 오디오 설정
     const [isAudioAllowed, setIsAudioAllowed] = useState(false); 
     const [isPlayingAlarm, setIsPlayingAlarm] = useState(false); 
     const audioRef = useRef(new Audio("/dingdong.mp3"));
@@ -33,7 +32,7 @@ function KitchenPage() {
         audioRef.current.currentTime = 0;
         audioRef.current.play()
             .then(() => setIsPlayingAlarm(true))
-            .catch(e => console.error("오디오 재생 차단됨 (클릭 필요):", e));
+            .catch(e => console.error("오디오 재생 실패 (사용자 클릭 필요):", e));
     };
 
     const stopAlarm = () => {
@@ -42,10 +41,10 @@ function KitchenPage() {
         setIsPlayingAlarm(false);
     };
 
-    // 데이터 로딩
     const fetchInitialData = async () => {
         try {
             const ordersRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/orders`);
+            // 결제 완료된 주문만 필터링하여 초기 로드
             setOrders(ordersRes.data.filter(order => !order.is_completed));
             const callsRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/calls`);
             setStaffCalls(callsRes.data);
@@ -53,9 +52,9 @@ function KitchenPage() {
         finally { setLoading(false); }
     };
 
-    // 웹소켓 연결
     const connectWebSocket = () => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+        
         const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/ws/${storeId}`;
         
@@ -63,7 +62,7 @@ function KitchenPage() {
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("🟢 주방 연결 성공");
+            console.log("🟢 주방 연결됨");
             setIsConnected(true);
             fetchInitialData();
         };
@@ -71,7 +70,14 @@ function KitchenPage() {
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === "NEW_ORDER") {
-                setOrders(prev => [convertWsOrderToState(data), ...prev]);
+                const newOrder = convertWsOrderToState(data);
+                
+                // 🔥 [핵심] 중복 방지 로직: 이미 리스트에 같은 주문 ID가 있으면 추가 안 함
+                setOrders(prev => {
+                    if (prev.some(o => o.id === newOrder.id)) return prev;
+                    return [newOrder, ...prev];
+                });
+                
                 if (isAudioAllowed) startAlarm();
             }
         };
@@ -113,13 +119,12 @@ function KitchenPage() {
         }).catch(() => alert("소리 재생 권한이 필요합니다."));
     };
 
-    // [화면 1] 권한 요청 (소리 문제 해결의 핵심)
     if (!isAudioAllowed) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white">
                 <div className="text-7xl mb-6">👨‍🍳</div>
                 <h1 className="text-4xl font-bold mb-6">주방 디스플레이 (KDS)</h1>
-                <p className="mb-8 text-gray-400">주문 알림 소리를 위해 아래 버튼을 눌러주세요.</p>
+                <p className="mb-8 text-gray-400">알림 소리를 위해 권한이 필요합니다.</p>
                 <button onClick={startKitchenMode} className="bg-green-600 hover:bg-green-700 text-white font-bold py-5 px-12 rounded-full text-2xl shadow-xl">
                     주방 모드 시작 ▶
                 </button>
@@ -150,7 +155,10 @@ function KitchenPage() {
                     {orders.map((order) => (
                         <div key={order.id} className="bg-white rounded-xl shadow-md overflow-hidden flex flex-col h-full animate-slideUp">
                             <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
-                                <span className="text-2xl font-bold text-yellow-400">#{order.daily_number}</span>
+                                <div>
+                                    <span className="text-2xl font-bold text-yellow-400">#{order.daily_number}</span>
+                                    <span className="text-xs text-gray-300 block">{order.created_at}</span>
+                                </div>
                                 <span className="text-lg font-bold">{order.table_name || "Unknown"}</span>
                             </div>
                             <div className="p-5 flex-1 overflow-y-auto">
