@@ -1,72 +1,83 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
 
 function OrderPage() {
   const { token } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [store, setStore] = useState(null);
   const [tableInfo, setTableInfo] = useState(null);
   const [loading, setLoading] = useState(true);
-  
-  // 장바구니 & 모달 State
   const [cart, setCart] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedMenu, setSelectedMenu] = useState(null);
   const [selectedOptions, setSelectedOptions] = useState(new Set());
-  
   const [isCartOpen, setIsCartOpen] = useState(false);
-
-  // 직원 호출 모달 상태
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
 
-  // [신규] 옵션 그룹핑 헬퍼 함수 (장바구니 표시 & 주문 전송 공용)
+  // 모바일 결제 복귀 처리
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const impUid = query.get("imp_uid");
+    const merchantUid = query.get("merchant_uid");
+    const isSuccess = (query.get("success") === "true") || (query.get("imp_success") === "true");
+
+    if (impUid) {
+      if (isSuccess) {
+        axios.post(`${API_BASE_URL}/payments/complete`, { imp_uid: impUid, merchant_uid: merchantUid })
+          .then(() => {
+            alert("결제가 완료되었습니다! 👨‍🍳");
+            setCart([]);
+            navigate(`/order/${token}`, { replace: true });
+          })
+          .catch((err) => {
+            alert(`결제 검증 실패: ${err.response?.data?.detail || "오류 발생"}`);
+            navigate(`/order/${token}`, { replace: true });
+          });
+      } else {
+        alert("결제가 취소되었습니다.");
+        navigate(`/order/${token}`, { replace: true });
+      }
+    }
+  }, [location, token, navigate]);
+
+  // 옵션 그룹핑 헬퍼
   const getGroupedOptions = (options) => {
       const grouped = [];
       options.forEach(opt => {
           const groupName = opt.group_name || '옵션';
-          
-          // 직전에 처리한 그룹과 이름이 같으면, 그 그룹의 옵션 목록에 추가
           const lastGroup = grouped[grouped.length - 1];
           if (lastGroup && lastGroup.name === groupName) {
               lastGroup.items.push(opt.name);
           } else {
-              // 새로운 그룹이면 새로 추가
               grouped.push({ name: groupName, items: [opt.name] });
           }
       });
       return grouped;
   };
 
-  // 호출 요청 핸들러
+  // 직원 호출
   const handleStaffCall = async (message) => {
-      try {
-          await axios.post(`${API_BASE_URL}/stores/${store.id}/calls`, {
-              table_id: tableInfo.id,
-              message: message
-          });
-          alert("🔔 직원을 호출했습니다. 잠시만 기다려주세요.");
-          setIsCallModalOpen(false);
-      } catch (err) {
-          console.error(err);
-          alert("호출 실패");
-      }
+    try {
+      await axios.post(`${API_BASE_URL}/stores/${store.id}/calls`, { table_id: tableInfo.id, message });
+      alert("🔔 직원을 호출했습니다.");
+      setIsCallModalOpen(false);
+    } catch (err) { alert("호출 실패"); }
   };
 
+  // 초기 정보 로딩
   useEffect(() => {
     const fetchInfo = async () => {
       try {
         const res = await axios.get(`${API_BASE_URL}/tables/by-token/${token}`);
-        const { store_id, table_id, label } = res.data;
-        setTableInfo({ id: table_id, name: label });
-
-        const storeRes = await axios.get(`${API_BASE_URL}/stores/${store_id}`);
+        setTableInfo({ id: res.data.table_id, name: res.data.label });
+        const storeRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}`);
         setStore(storeRes.data);
-        setLoading(false);
-      } catch (err) {
-        alert("유효하지 않은 QR 코드입니다.");
-        setLoading(false);
-      }
+      } catch (err) { alert("유효하지 않은 QR 코드입니다."); }
+      finally { setLoading(false); }
     };
     fetchInfo();
   }, [token]);
@@ -75,13 +86,11 @@ function OrderPage() {
     if (menu.is_sold_out) return;
 
     if (menu.option_groups && menu.option_groups.length > 0) {
-      // 옵션 그룹 순서대로 정렬
       const sortedGroups = [...menu.option_groups].sort((a,b) => a.order_index - b.order_index);
       const menuWithSortedGroups = { ...menu, option_groups: sortedGroups };
       
       setSelectedMenu(menuWithSortedGroups);
 
-      // 기본값(Default) 선택 로직
       const defaultOptions = new Set();
       sortedGroups.forEach(group => {
         if (group.is_single_select || group.is_required) {
@@ -114,7 +123,6 @@ function OrderPage() {
               const currentCount = Array.from(newOptions).filter(id => 
                   group.options.some(opt => opt.id === id)
               ).length;
-              
               if (currentCount >= group.max_select) {
                   return alert(`이 옵션은 최대 ${group.max_select}개까지만 선택 가능합니다.`);
               }
@@ -128,7 +136,6 @@ function OrderPage() {
   const addToCart = (menu, options) => {
     const optionsPrice = options.reduce((sum, opt) => sum + opt.price, 0);
     const unitPrice = menu.price + optionsPrice;
-
     const currentOptionIds = options.map(o => o.id).sort().join(',');
 
     const existingItemIndex = cart.findIndex(item => {
@@ -173,7 +180,6 @@ function OrderPage() {
       }
     }
     
-    // 그룹 이름을 포함하여 저장
     const optionsList = [];
     selectedMenu.option_groups.forEach(group => {
         group.options.forEach(opt => { 
@@ -185,41 +191,44 @@ function OrderPage() {
     addToCart(selectedMenu, optionsList);
   };
 
+  // 주문 및 결제 처리
   const handleOrder = async (e) => {
     e.stopPropagation();
     if (cart.length === 0) return alert("장바구니가 비어있습니다.");
-    
+
+    const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const itemsData = cart.map(item => ({
+      menu_id: item.menuId,
+      quantity: item.quantity,
+      options: item.options.map(o => ({ name: o.name, price: o.price })),
+      options_desc: item.options.map(o => o.name).join(", "),
+      price: item.price
+    }));
+
     try {
-      const orderData = {
-        store_id: store.id,
-        table_id: tableInfo.id,
-        items: cart.map(item => {
-            // 1. 옵션 그룹핑 로직 사용
-            const groupedOptions = getGroupedOptions(item.options);
+      const orderRes = await axios.post(`${API_BASE_URL}/orders/`, { store_id: store.id, table_id: tableInfo.id, items: itemsData });
+      
+      const { IMP } = window;
+      IMP.init("imp75163120"); // ✅ 내 가게 코드
 
-            // 2. 문자열로 변환 (줄바꿈 \n 적용!)
-            const optionsDesc = groupedOptions
-                .map(g => `${g.name} - ${g.items.join(", ")}`)
-                .join("\n"); // 🔥 여기서 줄바꿈 문자로 연결
-
-            return {
-                menu_id: item.menuId,
-                quantity: item.quantity,
-                options: item.options.map(o => ({ name: o.name, price: o.price })),
-                options_desc: optionsDesc,
-                price: item.price
-            };
-        })
-      };
-
-      await axios.post(`${API_BASE_URL}/orders/`, orderData);
-      alert("주문이 접수되었습니다! 👨‍🍳");
-      setCart([]); 
-      setIsCartOpen(false);
-    } catch (err) { 
-        console.error(err);
-        alert("주문 실패 ㅠㅠ"); 
-    }
+      IMP.request_pay({
+        pg: "html5_inicis", 
+        pay_method: "card",
+        merchant_uid: `order_${orderRes.data.id}_${Date.now()}`,
+        name: `${orderRes.data.items[0].menu_name} 외`,
+        amount: totalAmount,
+        m_redirect_url: window.location.href
+      }, async (rsp) => {
+        if (rsp.success) {
+          await axios.post(`${API_BASE_URL}/payments/complete`, { imp_uid: rsp.imp_uid, merchant_uid: rsp.merchant_uid });
+          alert("결제 완료! 👨‍🍳");
+          setCart([]);
+          setIsCartOpen(false);
+        } else {
+          alert(`결제 실패: ${rsp.error_msg}`);
+        }
+      });
+    } catch (err) { alert("주문 생성 실패"); }
   };
 
   if (loading || !store) return <div className="p-10 text-center">⏳ 메뉴판 불러오는 중...</div>;
@@ -342,7 +351,6 @@ function OrderPage() {
                                         <span className="text-sm font-bold text-indigo-600">x {item.quantity}</span>
                                     </div>
                                     
-                                    {/* 🔥 [신규] 장바구니에서 옵션 그룹별로 줄바꿈하여 표시 */}
                                     {item.options.length > 0 && (
                                         <div className="text-xs text-gray-500 mt-1 space-y-0.5">
                                             {getGroupedOptions(item.options).map((g, idx) => (
