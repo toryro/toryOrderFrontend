@@ -74,11 +74,11 @@ function App() {
                 <Route path="/order/:token" element={<OrderPage />} />
 
                 {/* 3. 관리자 페이지 (통합) */}
-                {/* 기존엔 STAFF가 없어서 막혔던 부분입니다. allowedRoles에 'STAFF', 'GROUP_ADMIN'을 추가했습니다. */}
+                {/* 🔥 [수정됨] allowedRoles에 'BRAND_ADMIN' 추가 */}
                 <Route 
                     path="/admin/:storeId?" 
                     element={
-                        <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'GROUP_ADMIN', 'STORE_OWNER', 'STAFF']}>
+                        <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'BRAND_ADMIN', 'GROUP_ADMIN', 'STORE_OWNER', 'STAFF']}>
                             <AdminPage />
                         </ProtectedRoute>
                     } 
