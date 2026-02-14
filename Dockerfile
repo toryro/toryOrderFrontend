@@ -1,7 +1,7 @@
 # toryOrderFrontend/Dockerfile
 
 # --- 1단계: 빌드 (Node.js) ---
-FROM node:18 AS builder
+FROM node:22 AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install
