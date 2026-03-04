@@ -482,145 +482,6 @@ function AdminStoreInfo({ store, token, fetchStore }) {
     );
 }
 
-function AdminInventory({ store, token }) {
-    const [inventories, setInventories] = useState([]);
-    const [newItemName, setNewItemName] = useState("");
-    const [newItemUnit, setNewItemUnit] = useState("개");
-    const [newItemQty, setNewItemQty] = useState("");
-    const [newItemSafe, setNewItemSafe] = useState(10);
-
-    const [selectedMenu, setSelectedMenu] = useState(null);
-    const [recipeIngredientId, setRecipeIngredientId] = useState("");
-    const [recipeAmount, setRecipeAmount] = useState("");
-
-    useEffect(() => { fetchInventory(); }, [store.id]);
-
-    const fetchInventory = async () => {
-        try {
-            const res = await axios.get(`${API_BASE_URL}/stores/${store.id}/inventories`, { headers: { Authorization: `Bearer ${token}` } });
-            setInventories(res.data);
-        } catch (err) { console.error("재고 로딩 실패"); }
-    };
-
-    const handleAddInventory = async () => {
-        if (!newItemName || !newItemQty) return alert("필수 입력 누락");
-        try {
-            await axios.post(`${API_BASE_URL}/stores/${store.id}/inventories`, 
-                { name: newItemName, quantity: parseInt(newItemQty), unit: newItemUnit, safe_quantity: parseInt(newItemSafe) },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            alert("입고 완료!"); setNewItemName(""); setNewItemQty(""); fetchInventory();
-        } catch (err) { alert("등록 실패"); }
-    };
-
-    const handleUpdateQuantity = async (id, newQty) => {
-        try {
-            await axios.patch(`${API_BASE_URL}/inventories/${id}`, { quantity: parseInt(newQty) }, { headers: { Authorization: `Bearer ${token}` } });
-            fetchInventory();
-        } catch (err) { alert("수정 실패"); }
-    };
-
-    const handleAddRecipe = async () => {
-        if (!selectedMenu || !recipeIngredientId || !recipeAmount) return alert("모든 항목을 선택해주세요.");
-        try {
-            await axios.post(`${API_BASE_URL}/menus/${selectedMenu.id}/recipes`, 
-                { inventory_id: parseInt(recipeIngredientId), amount_needed: parseInt(recipeAmount) },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            alert("레시피 연결 성공!");
-            setRecipeIngredientId(""); setRecipeAmount("");
-        } catch (err) { alert("연결 실패"); }
-    };
-
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-20 animate-fadeIn">
-            <div className="space-y-6">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                    <h3 className="font-bold text-xl mb-4 text-gray-800">📦 재고 등록 (입고)</h3>
-                    <div className="flex flex-col gap-3">
-                        <div className="flex gap-2">
-                            <input className="border p-2 rounded flex-[2]" placeholder="재료명 (예: 삼겹살)" value={newItemName} onChange={e=>setNewItemName(e.target.value)} />
-                            <select className="border p-2 rounded flex-1" value={newItemUnit} onChange={e=>setNewItemUnit(e.target.value)}>
-                                <option value="개">개</option>
-                                <option value="kg">kg</option>
-                                <option value="g">g</option>
-                                <option value="L">L</option>
-                                <option value="ml">ml</option>
-                            </select>
-                        </div>
-                        <div className="flex gap-2">
-                            <input className="border p-2 rounded flex-1" type="number" placeholder="수량" value={newItemQty} onChange={e=>setNewItemQty(e.target.value)} />
-                            <input className="border p-2 rounded flex-1" type="number" placeholder="안전재고" value={newItemSafe} onChange={e=>setNewItemSafe(e.target.value)} />
-                            <button onClick={handleAddInventory} className="bg-indigo-600 text-white px-4 rounded font-bold hover:bg-indigo-700">입고</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                    <h3 className="font-bold text-xl mb-4 text-gray-800">📋 현재 재고 현황</h3>
-                    <ul className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-                        {inventories.map(item => (
-                            <li key={item.id} className={`flex justify-between items-center p-3 rounded-lg border ${item.quantity <= item.safe_quantity ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-100"}`}>
-                                <div>
-                                    <span className="font-bold text-gray-800 text-lg">{item.name}</span>
-                                    {item.quantity <= item.safe_quantity && <span className="ml-2 text-xs font-bold text-red-600 animate-pulse">⚠️ 부족</span>}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <input 
-                                        type="number" 
-                                        className="w-20 border rounded p-1 text-right font-bold" 
-                                        defaultValue={item.quantity} 
-                                        onBlur={(e) => handleUpdateQuantity(item.id, e.target.value)}
-                                    />
-                                    <span className="text-gray-500 w-8">{item.unit}</span>
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-fit">
-                <h3 className="font-bold text-xl mb-6 text-gray-800">🍳 메뉴별 레시피 설정</h3>
-                <div className="mb-6">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">1. 대상 메뉴 선택</label>
-                    <select 
-                        className="w-full border p-3 rounded-xl bg-gray-50"
-                        onChange={(e) => {
-                            const menuId = parseInt(e.target.value);
-                            const found = store.categories.flatMap(c => c.menus).find(m => m.id === menuId);
-                            setSelectedMenu(found);
-                        }}
-                    >
-                        <option value="">메뉴를 선택해주세요...</option>
-                        {store.categories.map(cat => (
-                            <optgroup key={cat.id} label={cat.name}>
-                                {cat.menus.map(menu => <option key={menu.id} value={menu.id}>{menu.name}</option>)}
-                            </optgroup>
-                        ))}
-                    </select>
-                </div>
-
-                {selectedMenu && (
-                    <div className="animate-slideUp">
-                        <div className="p-4 bg-indigo-50 rounded-xl mb-6 border border-indigo-100">
-                            <h4 className="font-bold text-indigo-900 mb-2">'{selectedMenu.name}' 레시피 추가</h4>
-                            <div className="flex gap-2 mb-2">
-                                <select className="flex-[2] border p-2 rounded" value={recipeIngredientId} onChange={e=>setRecipeIngredientId(e.target.value)}>
-                                    <option value="">재료 선택...</option>
-                                    {inventories.map(inv => <option key={inv.id} value={inv.id}>{inv.name} (현재 {inv.quantity}{inv.unit})</option>)}
-                                </select>
-                                <input className="flex-1 border p-2 rounded" type="number" placeholder="차감량" value={recipeAmount} onChange={e=>setRecipeAmount(e.target.value)} />
-                            </div>
-                            <button onClick={handleAddRecipe} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">연결 저장</button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
 function AdminMenuManagement({ store, token, fetchStore }) {
     const [storeOptionGroups, setStoreOptionGroups] = useState([]);
     const [categoryName, setCategoryName] = useState("");
@@ -1525,8 +1386,6 @@ function AdminPage() {
                 <nav className="flex-1 p-4 space-y-2">
                     <MenuButton icon="🏠" label="영업장 정보" active={activeTab==="info"} onClick={()=>setActiveTab("info")} />
                     <MenuButton icon="🍽️" label="메뉴 관리" active={activeTab==="menu"} onClick={()=>setActiveTab("menu")} />
-                    {/* 🔥 [신규 추가] 재고/레시피 관리 탭 */}
-                    <MenuButton icon="📦" label="재고/레시피" active={activeTab==="inventory"} onClick={()=>setActiveTab("inventory")} />
                     <MenuButton icon="🔔" label="호출 옵션" active={activeTab==="callOptions"} onClick={()=>setActiveTab("callOptions")} />
                     <MenuButton icon="⏰" label="영업 시간" active={activeTab==="hours"} onClick={()=>setActiveTab("hours")} />
                     <MenuButton icon="🪑" label="테이블 관리" active={activeTab==="tables"} onClick={()=>setActiveTab("tables")} />
@@ -1543,10 +1402,6 @@ function AdminPage() {
             <div className="flex-1 ml-64 p-8 overflow-y-auto">
                 {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} />}
                 {activeTab === "menu" && <AdminMenuManagement store={store} token={token} fetchStore={fetchStore} />}
-                
-                {/* 🔥 [신규 추가] 재고/레시피 컴포넌트 렌더링 */}
-                {activeTab === "inventory" && <AdminInventory store={store} token={token} />}
-                
                 {activeTab === "callOptions" && <AdminCallOptionManagement store={store} token={token} />}
                 {activeTab === "hours" && <AdminHours store={store} token={token} fetchStore={fetchStore} />}
                 {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
