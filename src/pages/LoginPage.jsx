@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
+import toast from "react-hot-toast"; // 🔥 임포트 추가
 
 function LoginPage() {
   const [email, setEmail] = useState("");
@@ -9,67 +10,60 @@ function LoginPage() {
   const navigate = useNavigate();
 
   const handleLogin = async () => {
-    try {
-      // 1. 로그인 요청
-      const formData = new URLSearchParams();
-      formData.append("username", email);
-      formData.append("password", password);
-
-      const res = await axios.post(`${API_BASE_URL}/token`, formData);
-      const token = res.data.access_token;
-
-      // 2. 토큰 저장
-      localStorage.setItem("token", token);
-
-      // 3. 내 정보 조회
-      const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      const user = userRes.data;
-      console.log("로그인 유저 정보:", user);
-
-      // 4. 역할(Role)에 따른 페이지 이동 🚦
-      if (user.role === "SUPER_ADMIN") {
-        alert("슈퍼 관리자님 환영합니다! 👑");
-        navigate("/admin");
-      } 
-      // 🔥 [추가됨] 브랜드 관리자 접속 허용
-      else if (user.role === "BRAND_ADMIN") {
-        alert(`반갑습니다! ${user.name} 브랜드 관리자님.`);
-        navigate("/admin");
-      }
-      // 🔥 [추가됨] 그룹 관리자 (기존 유지)
-      else if (user.role === "GROUP_ADMIN") {
-        alert("본사 관리자 모드로 접속합니다.");
-        navigate("/admin");
-      }
-      else if (user.role === "STORE_OWNER") {
-        if (user.store_id) {
-            alert("사장님, 오늘도 대박나세요! 💰");
-            navigate(`/admin/${user.store_id}`);
-        } else {
-            alert("할당된 가게가 없습니다.");
-        }
-      } 
-      else if (user.role === "STAFF") {
-        if (user.store_id) {
-            alert(`환영합니다, ${user.name}님! 오늘도 화이팅! 💪`);
-            navigate(`/admin/${user.store_id}`);
-        } else {
-            alert("소속된 매장 정보가 없습니다.");
-        }
-      }
-      else {
-        // 그 외 (권한 없음)
-        alert("접근 권한이 없는 역할입니다.");
-        localStorage.removeItem("token"); // 토큰 삭제
-      }
-
-    } catch (err) {
-      console.error(err);
-      alert("로그인 실패! 이메일과 비밀번호를 확인해주세요.");
+    // 💡 입력값 빈칸 체크 추가 (UX 개선)
+    if (!email || !password) {
+        toast.error("이메일과 비밀번호를 모두 입력해주세요.");
+        return;
     }
+
+    // 로딩 상태를 보여주는 토스트 실행 (데이터를 가져오는 동안 빙글빙글 돕니다)
+    const loginPromise = axios.post(`${API_BASE_URL}/token`, new URLSearchParams({
+        username: email,
+        password: password
+    }));
+
+    toast.promise(loginPromise, {
+        loading: '로그인 중...',
+        success: '토큰 발급 성공!',
+        error: '로그인 실패! 이메일과 비밀번호를 확인해주세요.',
+    }).then(async (res) => {
+        const token = res.data.access_token;
+        localStorage.setItem("token", token);
+
+        try {
+            const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const user = userRes.data;
+
+            // 역할에 따른 페이지 이동 및 성공 알림
+            if (user.role === "SUPER_ADMIN") {
+                toast.success("슈퍼 관리자님 환영합니다! 👑");
+                navigate("/admin");
+            } else if (user.role === "BRAND_ADMIN") {
+                toast.success(`반갑습니다! ${user.name} 브랜드 관리자님.`);
+                navigate("/admin");
+            } else if (user.role === "GROUP_ADMIN") {
+                toast.success(`${user.name} 그룹 관리자님 환영합니다.`);
+                navigate("/admin");
+            } else if (user.role === "STORE_OWNER") {
+                if (user.store_id) {
+                    toast.success(`환영합니다, ${user.name} 사장님! 오늘도 화이팅! 💪`);
+                    navigate(`/admin/${user.store_id}`);
+                } else {
+                    toast.error("소속된 매장 정보가 없습니다.");
+                }
+            } else {
+                toast.error("접근 권한이 없는 역할입니다.");
+                localStorage.removeItem("token");
+            }
+        } catch (err) {
+            toast.error("사용자 정보를 불러오는데 실패했습니다.");
+        }
+    }).catch((err) => {
+        // 오류 처리는 위 toast.promise의 error 속성에서 이미 처리됨
+        console.error(err);
+    });
   };
 
   return (

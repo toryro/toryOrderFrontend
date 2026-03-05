@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { API_BASE_URL } from "./config"; // config 파일 경로 확인 필요
+import { Toaster } from "react-hot-toast"; // 🔥 1. 라이브러리 임포트
 
 // 페이지 컴포넌트 임포트 (파일 경로에 맞게 수정하세요)
 import LoginPage from "./pages/LoginPage";
@@ -66,6 +67,15 @@ function ProtectedRoute({ children, allowedRoles }) {
 function App() {
     return (
         <BrowserRouter>
+            {/* 🔥 2. 알림이 뜰 위치 설정 (최상단에 한 번만 선언) */}
+            <Toaster 
+                position="top-center" 
+                toastOptions={{
+                    duration: 3000,
+                    style: { background: '#333', color: '#fff', fontWeight: 'bold' }
+                }} 
+            />
+            
             <Routes>
                 {/* 1. 로그인 페이지 (누구나 접근 가능) */}
                 <Route path="/" element={<LoginPage />} />
@@ -74,7 +84,6 @@ function App() {
                 <Route path="/order/:token" element={<OrderPage />} />
 
                 {/* 3. 관리자 페이지 (통합) */}
-                {/* 🔥 [수정됨] allowedRoles에 'BRAND_ADMIN' 추가 */}
                 <Route 
                     path="/admin/:storeId?" 
                     element={

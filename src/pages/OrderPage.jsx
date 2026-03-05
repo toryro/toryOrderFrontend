@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
+import toast from "react-hot-toast";
 
 function OrderPage() {
   const { token } = useParams();
@@ -34,11 +35,11 @@ function OrderPage() {
               table_id: tableInfo.id,
               message: message
           });
-          alert(`🔔 '${message}' 요청을 보냈습니다.`);
+          toast.success(`🔔 '${message}' 요청을 보냈습니다.`);
           setIsCallModalOpen(false);
       } catch (err) {
           console.error(err);
-          alert("호출 실패");
+          toast.error("호출 실패");
       }
   };
 
@@ -80,14 +81,14 @@ function OrderPage() {
                 setCart([]);
                 navigate(`/order/${token}`, { replace: true });
              } else {
-                alert(`결제 실패: ${err.response?.data?.detail || "오류 발생"}`);
+                toast.error(`결제 실패: ${err.response?.data?.detail || "오류 발생"}`);
              }
           })
           .finally(() => {
              isProcessing.current = false;
           });
       } else {
-        alert("결제가 취소되었습니다.");
+        toast.error("결제가 취소되었습니다.");
         isProcessing.current = false;
         navigate(`/order/${token}`, { replace: true });
       }
@@ -101,7 +102,7 @@ function OrderPage() {
         setTableInfo({ id: res.data.table_id, name: res.data.label });
         const storeRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}`);
         setStore(storeRes.data);
-      } catch (err) { alert("유효하지 않은 QR 코드입니다."); }
+      } catch (err) { toast.error("유효하지 않은 QR 코드입니다."); }
       finally { setLoading(false); }
     };
     fetchInfo();
@@ -125,7 +126,7 @@ function OrderPage() {
       else {
           if (group.max_select > 0) {
               const count = Array.from(newOptions).filter(id => group.options.some(opt => opt.id === id)).length;
-              if (count >= group.max_select) return alert(`최대 ${group.max_select}개 선택 가능`);
+              if (count >= group.max_select) return toast.error(`최대 ${group.max_select}개 선택 가능`);
           }
           newOptions.add(optionId);
       }
@@ -135,7 +136,7 @@ function OrderPage() {
 
   const handleConfirmOptions = () => {
     for (const group of selectedMenu.option_groups) {
-      if (group.is_required && !group.options.some(opt => selectedOptions.has(opt.id))) return alert(`'${group.name}' 필수 선택`);
+      if (group.is_required && !group.options.some(opt => selectedOptions.has(opt.id))) return toast.error(`'${group.name}' 필수 선택`);
     }
     const optionsList = [];
     selectedMenu.option_groups.forEach(g => g.options.forEach(o => { if (selectedOptions.has(o.id)) optionsList.push({ ...o, group_name: g.name }); }));
@@ -149,7 +150,7 @@ function OrderPage() {
 
   const handleOrder = async (e) => {
     e.stopPropagation();
-    if (cart.length === 0) return alert("장바구니가 비어있습니다.");
+    if (cart.length === 0) return toast.error("장바구니가 비어있습니다.");
     if (isProcessing.current) return;
     isProcessing.current = true;
 
@@ -188,17 +189,17 @@ function OrderPage() {
               setCart([]);
               setIsCartOpen(false);
           } catch (err) {
-              alert(`결제 검증 실패: ${err.response?.data?.detail || "오류 발생"}`);
+              toast.error(`결제 검증 실패: ${err.response?.data?.detail || "오류 발생"}`);
           }
         } else {
-          alert(`결제 실패: ${rsp.error_msg}`);
+          toast.error(`결제 실패: ${rsp.error_msg}`);
         }
         isProcessing.current = false;
       });
     } catch (err) { 
         // 🔥 [수정됨] 백엔드에서 보낸 구체적인 에러 메시지(재고 부족 등)를 표시
         const errorMsg = err.response?.data?.detail || "주문 생성 실패";
-        alert(`🚫 주문을 진행할 수 없습니다.\n사유: ${errorMsg}`); 
+        toast.error(`🚫 주문을 진행할 수 없습니다.\n사유: ${errorMsg}`); 
         isProcessing.current = false;
     }
   };

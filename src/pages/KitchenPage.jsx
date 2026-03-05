@@ -64,68 +64,66 @@ function KitchenPage() {
 
     // 웹소켓 연결
     const connectWebSocket = () => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
-        
+        const token = localStorage.getItem("token");
+        if (!token) {
+            console.error("인증 토큰이 없습니다. 로그인 페이지로 이동합니다.");
+            return;
+        }
+
+        // 🚨 보안 적용: 쿼리 파라미터(?token=)를 통해 백엔드에 출입증 제시
         const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/ws/${storeId}`;
+        // API_BASE_URL에서 http://를 잘라내고 웹소켓 프로토콜로 변경하여 연결
+        const baseUrl = API_BASE_URL.replace(/^https?:\/\//, '');
+        const wsUrl = `${wsProtocol}//${baseUrl}/ws/${storeId}?token=${token}`;
         
         const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("🟢 주방 시스템 연결 성공");
+            console.log("🟢 주방 WebSocket 서버 연결 성공!");
             setIsConnected(true);
-            fetchInitialData();
+            // 정상적으로 연결되면 돌고 있던 재연결 타이머를 정지시킵니다.
+            if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
         };
 
         ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            
-            // 🔥 [1] 주문 알림
-            if (data.type === "NEW_ORDER") {
-                setOrders(prev => {
-                    if (prev.some(o => o.id === data.order_id)) return prev;
-                    return [{
-                        id: data.order_id,
-                        daily_number: data.daily_number,
-                        table_name: data.table_name,
-                        created_at: data.created_at,
-                        items: data.items
-                    }, ...prev];
-                });
-                if (isAudioAllowedRef.current) startAlarm();
-            }
-            
-            // 🔥 [2] 직원 호출 알림 (실시간 반영 로직 수정됨!)
-            else if (data.type === "STAFF_CALL") {
-                console.log("🔔 직원 호출 수신:", data);
-                setStaffCalls(prev => {
-                    // 중복 방지 후 추가
-                    if (prev.some(c => c.id === data.id)) return prev;
-                    return [{
-                        id: data.id,
-                        table_name: data.table_name,
-                        message: data.message,
-                        created_at: data.created_at
-                    }, ...prev];
-                });
-                
-                if (isAudioAllowedRef.current) startAlarm();
-            }
+            console.log("🔔 실시간 알림 수신:", event.data);
+            startAlarm();
+            // TODO: 알림을 받으면 즉시 백엔드에서 주문/호출 목록을 새로고침하는 함수를 호출하세요.
+            // 예: fetchOrders(); fetchStaffCalls();
         };
 
-        ws.onclose = () => {
-            console.log("🔴 연결 끊김, 재연결 시도...");
+        ws.onclose = (e) => {
+            console.warn(`🔴 WebSocket 끊김 (Code: ${e.code}). 3초 뒤 재연결 시도...`);
             setIsConnected(false);
-            wsRef.current = null;
-            reconnectTimeout.current = setTimeout(connectWebSocket, 3000); 
+            
+            // 🚨 안정성 적용: 통신이 끊어지면 3초 후 자신을 다시 호출하여 끈질기게 재연결 시도
+            reconnectTimeout.current = setTimeout(() => {
+                console.log("🔄 WebSocket 자동 재연결 시도 중...");
+                connectWebSocket();
+            }, 3000);
         };
+
+        ws.onerror = (err) => {
+            console.error("WebSocket 통신 에러:", err);
+            // 에러가 나면 강제로 연결을 닫아 버려서 onclose 이벤트가 실행되도록 유도 (재연결 사이클 태우기)
+            ws.close(); 
+        };
+
+        wsRef.current = ws;
     };
 
     useEffect(() => {
-        fetchInitialData();
         connectWebSocket();
-        return () => { if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current); };
+        
+        // 컴포넌트가 화면에서 사라질 때(언마운트) 실행되는 청소 로직
+        return () => {
+            if (wsRef.current) {
+                // 사용자가 의도적으로 페이지를 나갈 때는 재연결 로직이 돌지 않도록 이벤트 제거 후 종료
+                wsRef.current.onclose = null; 
+                wsRef.current.close();
+            }
+            if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+        };
     }, [storeId]);
 
     // 주문 완료 처리

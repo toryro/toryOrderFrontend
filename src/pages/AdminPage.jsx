@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
+import toast from "react-hot-toast";
 
 // ==========================================
 // 1. [직원용] Staff View
@@ -154,9 +155,9 @@ function AdminBrandManagement({ token }) {
     const fetchBrands = async () => { axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setBrands(res.data)).catch(()=>{}); };
 
     const handleCreateBrand = async () => {
-        if (!newBrandName) return alert("브랜드명 필수");
-        try { await axios.post(`${API_BASE_URL}/brands/`, { name: newBrandName, logo_url: newBrandLogo }, { headers: { Authorization: `Bearer ${token}` } }); alert("생성 완료"); setNewBrandName(""); fetchBrands(); } 
-        catch (err) { alert("생성 실패"); }
+        if (!newBrandName) return toast.error("브랜드명 필수");
+        try { await axios.post(`${API_BASE_URL}/brands/`, { name: newBrandName, logo_url: newBrandLogo }, { headers: { Authorization: `Bearer ${token}` } }); toast.success("생성 완료"); setNewBrandName(""); fetchBrands(); } 
+        catch (err) { toast.error("생성 실패"); }
     };
 
     return (
@@ -184,9 +185,9 @@ function HQStoreCreate({ token, onSuccess }) {
     useEffect(() => { axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setBrands(res.data)).catch(()=>{}); }, []);
 
     const handleCreate = async () => {
-        if (!name) return alert("매장명 필수");
-        try { await axios.post(`${API_BASE_URL}/stores/`, { name, address, brand_id: brandId ? parseInt(brandId) : null }, { headers: { Authorization: `Bearer ${token}` } }); alert("성공!"); onSuccess(); } 
-        catch (err) { alert("실패: " + (err.response?.data?.detail || "오류")); }
+        if (!name) return toast.error("매장명 필수");
+        try { await axios.post(`${API_BASE_URL}/stores/`, { name, address, brand_id: brandId ? parseInt(brandId) : null }, { headers: { Authorization: `Bearer ${token}` } }); toast.success("성공!"); onSuccess(); } 
+        catch (err) { toast.error("실패: " + (err.response?.data?.detail || "오류")); }
     };
 
     return (
@@ -234,7 +235,7 @@ function AdminMenuDistribution({ stores, token }) {
     };
 
     const handleDistribute = async () => {
-        if (!selectedCategoryId || targetStoreIds.size === 0) return alert("대상과 메뉴를 선택해주세요.");
+        if (!selectedCategoryId || targetStoreIds.size === 0) return toast.error("대상과 메뉴를 선택해주세요.");
         if (!window.confirm(`정말 ${targetStoreIds.size}개 매장에 메뉴를 배포하시겠습니까?`)) return;
         setLoading(true);
         try {
@@ -242,8 +243,8 @@ function AdminMenuDistribution({ stores, token }) {
                 { source_category_id: parseInt(selectedCategoryId), target_store_ids: Array.from(targetStoreIds) }, 
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert("배포 완료!"); setStep(1); setSelectedStoreId(""); setTargetStoreIds(new Set());
-        } catch (err) { alert("배포 실패: " + (err.response?.data?.detail || "오류")); } finally { setLoading(false); }
+            toast.success("배포 완료!"); setStep(1); setSelectedStoreId(""); setTargetStoreIds(new Set());
+        } catch (err) { toast.error("배포 실패: " + (err.response?.data?.detail || "오류")); } finally { setLoading(false); }
     };
 
     return (
@@ -321,11 +322,11 @@ function HQUserManage({ token, currentUser }) {
         try {
             const res = await axios.get(`${API_BASE_URL}/users/`, { headers: { Authorization: `Bearer ${token}` } });
             setUsers(res.data);
-        } catch (err) { alert("사용자 목록 조회 실패"); }
+        } catch (err) { toast.error("사용자 목록 조회 실패"); }
     };
 
     const handleCreate = async () => {
-        if (!email || !password) return alert("필수 정보 누락");
+        if (!email || !password) return toast.error("필수 정보 누락");
         let finalBrandId = null;
         if (currentUser.role === "BRAND_ADMIN") finalBrandId = currentUser.brand_id;
         else if (role === "BRAND_ADMIN") finalBrandId = parseInt(targetBrandId);
@@ -335,13 +336,13 @@ function HQUserManage({ token, currentUser }) {
                 { email, password, name, role, brand_id: finalBrandId, store_id: (role==="STORE_OWNER"||role==="STAFF")?parseInt(targetStoreId):null }, 
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert("생성 완료"); fetchUsers(); setEmail(""); setPassword("");
-        } catch (err) { alert("실패"); }
+            toast.success("생성 완료"); fetchUsers(); setEmail(""); setPassword("");
+        } catch (err) { toast.error("실패"); }
     };
 
     const handleDelete = async (id) => {
         if(!window.confirm("삭제?")) return;
-        try { await axios.delete(`${API_BASE_URL}/admin/users/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchUsers(); } catch { alert("삭제 실패"); }
+        try { await axios.delete(`${API_BASE_URL}/admin/users/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchUsers(); } catch { toast.error("삭제 실패"); }
     };
 
     if (!currentUser) return <div>로딩 중...</div>;
@@ -446,8 +447,8 @@ function AdminStoreInfo({ store, token, fetchStore }) {
                 { name, address, phone, description: desc, notice, origin_info: originInfo, owner_name: ownerName, business_name: businessName, business_address: businessAddress, business_number: businessNumber, brand_id: brandId ? parseInt(brandId) : null },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert("저장되었습니다."); fetchStore();
-        } catch(err) { alert("저장 실패"); }
+            toast.success("저장되었습니다."); fetchStore();
+        } catch(err) { toast.error("저장 실패"); }
     };
 
     return (
@@ -527,7 +528,7 @@ function AdminMenuManagement({ store, token, fetchStore }) {
     };
 
     const handleCreateMenu = async () => {
-        if (!selectedCategoryId || !menuName || !menuPrice) return alert("카테고리, 이름, 가격은 필수입니다.");
+        if (!selectedCategoryId || !menuName || !menuPrice) return toast.error("카테고리, 이름, 가격은 필수입니다.");
         const category = store.categories.find(c => c.id == selectedCategoryId);
         const nextOrder = category && category.menus.length > 0 ? Math.max(...category.menus.map(m => m.order_index)) + 1 : 1;
         await axios.post(`${API_BASE_URL}/categories/${selectedCategoryId}/menus/`, 
@@ -579,7 +580,7 @@ function AdminMenuManagement({ store, token, fetchStore }) {
             is_hidden: editingMenu.is_hidden,
             image_url: editingMenu.image_url
         });
-        alert("수정되었습니다."); setIsEditModalOpen(false); refreshAll();
+        toast.success("수정되었습니다."); setIsEditModalOpen(false); refreshAll();
     };
 
     const handleDeleteMenu = async () => {
@@ -649,7 +650,7 @@ function AdminMenuManagement({ store, token, fetchStore }) {
             }
             setEditingMenu({ ...editingMenu, option_groups: updatedGroups });
             refreshAll(); 
-        } catch (err) { alert("연결 실패"); }
+        } catch (err) { toast.error("연결 실패"); }
     };
 
     const handleReorderLinkedGroup = async (index, direction) => {
@@ -934,13 +935,13 @@ function AdminCallOptionManagement({ store, token }) {
         try {
             await axios.post(`${API_BASE_URL}/stores/${store.id}/call-options`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
             setNewName(""); fetchOptions();
-        } catch (err) { alert("추가 실패"); }
+        } catch (err) { toast.error("추가 실패"); }
     };
 
     const handleDelete = async (id) => {
         if (!window.confirm("삭제하시겠습니까?")) return;
         try { await axios.delete(`${API_BASE_URL}/call-options/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchOptions(); }
-        catch (err) { alert("삭제 실패"); }
+        catch (err) { toast.error("삭제 실패"); }
     };
 
     return (
@@ -995,9 +996,9 @@ function AdminHours({ store, token, fetchStore }) {
     const handleSaveHours = async () => {
         try {
             await axios.post(`${API_BASE_URL}/stores/${store.id}/hours`, hours, { headers: { Authorization: `Bearer ${token}` } });
-            alert("영업시간이 저장되었습니다.");
+            toast.success("영업시간이 저장되었습니다.");
             fetchStore();
-        } catch (err) { alert("저장 실패"); }
+        } catch (err) { toast.error("저장 실패"); }
     };
 
     const handleAddHoliday = async () => {
@@ -1008,13 +1009,13 @@ function AdminHours({ store, token, fetchStore }) {
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             setNewHolidayDate(""); setNewHolidayDesc(""); fetchStore();
-        } catch (err) { alert("휴일 추가 실패"); }
+        } catch (err) { toast.error("휴일 추가 실패"); }
     };
 
     const handleDeleteHoliday = async (id) => {
         if (!window.confirm("삭제하시겠습니까?")) return;
         try { await axios.delete(`${API_BASE_URL}/holidays/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchStore(); } 
-        catch (err) { alert("삭제 실패"); }
+        catch (err) { toast.error("삭제 실패"); }
     };
 
     return (
@@ -1069,13 +1070,13 @@ function AdminTables({ store, token, fetchStore }) {
         try {
             await axios.post(`${API_BASE_URL}/stores/${store.id}/tables/`, { name: newTableName }, { headers: { Authorization: `Bearer ${token}` } });
             setNewTableName(""); fetchStore();
-        } catch (err) { alert("테이블 생성 실패"); }
+        } catch (err) { toast.error("테이블 생성 실패"); }
     };
 
     const handleDeleteTable = async (id) => {
         if (!window.confirm("정말 삭제하시겠습니까? QR코드도 무효화됩니다.")) return;
         try { await axios.delete(`${API_BASE_URL}/tables/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchStore(); } 
-        catch (err) { alert("삭제 실패"); }
+        catch (err) { toast.error("삭제 실패"); }
     };
 
     const startEdit = (table) => { setEditingTableId(table.id); setEditingName(table.name); };
@@ -1084,7 +1085,7 @@ function AdminTables({ store, token, fetchStore }) {
         try {
             await axios.patch(`${API_BASE_URL}/tables/${tableId}`, { name: editingName }, { headers: { Authorization: `Bearer ${token}` } });
             setEditingTableId(null); fetchStore();
-        } catch (err) { alert("수정 실패"); }
+        } catch (err) { toast.error("수정 실패"); }
     };
 
     const getQrImageUrl = (token, size = 150) => {
@@ -1108,7 +1109,7 @@ function AdminTables({ store, token, fetchStore }) {
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-        } catch (err) { console.error(err); alert("다운로드 중 오류가 발생했습니다."); }
+        } catch (err) { console.error(err); toast.error("다운로드 중 오류가 발생했습니다."); }
     };
 
     return (
@@ -1178,7 +1179,7 @@ function AdminSales({ store, token }) {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setStats(res.data);
-        } catch (err) { alert("매출 데이터 로딩 실패"); }
+        } catch (err) { toast.error("매출 데이터 로딩 실패"); }
     };
 
     useEffect(() => { fetchStats(); }, [startDate, endDate]);
@@ -1266,23 +1267,23 @@ function AdminUsers({ store, token }) {
         try {
             const res = await axios.get(`${API_BASE_URL}/users/`, { headers: { Authorization: `Bearer ${token}` } });
             setUsers(res.data);
-        } catch (err) { alert("목록 로딩 실패"); }
+        } catch (err) { toast.error("목록 로딩 실패"); }
     };
 
     const handleCreateUser = async () => {
-        if(!newUserEmail || !newUserPassword) return alert("이메일, 비밀번호 필수");
+        if(!newUserEmail || !newUserPassword) return toast.error("이메일, 비밀번호 필수");
         try {
             await axios.post(`${API_BASE_URL}/admin/users/`, 
                 { email: newUserEmail, password: newUserPassword, name: newUserName, role: newUserRole, store_id: store.id },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert("생성 완료"); setNewUserEmail(""); setNewUserPassword(""); setNewUserName(""); setIsModalOpen(false); fetchUsers();
-        } catch(err) { alert(err.response?.data?.detail || "실패"); }
+            toast.success("생성 완료"); setNewUserEmail(""); setNewUserPassword(""); setNewUserName(""); setIsModalOpen(false); fetchUsers();
+        } catch(err) { toast.error(err.response?.data?.detail || "실패"); }
     };
 
     const handleDeleteUser = async (userId) => {
         if(!window.confirm("삭제하시겠습니까?")) return;
-        try { await axios.delete(`${API_BASE_URL}/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } }); fetchUsers(); } catch(err) { alert("삭제 실패"); }
+        try { await axios.delete(`${API_BASE_URL}/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } }); fetchUsers(); } catch(err) { toast.error("삭제 실패"); }
     };
 
     return (
@@ -1324,7 +1325,7 @@ function AdminPage() {
             try {
                 const res = await axios.get(`${API_BASE_URL}/stores/${storeId}`, { headers: { Authorization: `Bearer ${token}` } });
                 setStore(res.data);
-            } catch { alert("가게 정보 로딩 실패"); }
+            } catch { toast.error("가게 정보 로딩 실패"); }
         }
     };
 
@@ -1342,7 +1343,7 @@ function AdminPage() {
             );
             setStore({ ...store, is_open: newStatus }); 
         } catch (err) {
-            alert("상태 변경 실패");
+            toast.error("상태 변경 실패");
         }
     };
 
