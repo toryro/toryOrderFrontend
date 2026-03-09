@@ -53,10 +53,15 @@ function KitchenPage() {
 
     // 데이터 로딩
     const fetchInitialData = async () => {
+        const token = localStorage.getItem("token"); // ✨ 신분증(토큰) 꺼내기
+        if (!token) return;
+
         try {
-            const ordersRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/orders`);
+            // ✨ API 요청 시 헤더에 토큰 포함
+            const ordersRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/orders`, { headers: { Authorization: `Bearer ${token}` } });
             setOrders(ordersRes.data.filter(order => !order.is_completed));
-            const callsRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/calls`);
+            
+            const callsRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/calls`, { headers: { Authorization: `Bearer ${token}` } });
             setStaffCalls(callsRes.data);
         } catch (err) { console.error(err); } 
         finally { setLoading(false); }
@@ -88,8 +93,7 @@ function KitchenPage() {
         ws.onmessage = (event) => {
             console.log("🔔 실시간 알림 수신:", event.data);
             startAlarm();
-            // TODO: 알림을 받으면 즉시 백엔드에서 주문/호출 목록을 새로고침하는 함수를 호출하세요.
-            // 예: fetchOrders(); fetchStaffCalls();
+            fetchInitialData(); // ✨ 새 알림이 오면 즉시 목록을 최신화하여 화면에 띄웁니다!
         };
 
         ws.onclose = (e) => {
@@ -113,6 +117,7 @@ function KitchenPage() {
     };
 
     useEffect(() => {
+        fetchInitialData(); // ✨ 주방 화면이 켜지자마자 기존 장부(주문/호출)부터 싹 가져옵니다!
         connectWebSocket();
         
         // 컴포넌트가 화면에서 사라질 때(언마운트) 실행되는 청소 로직
@@ -129,8 +134,12 @@ function KitchenPage() {
     // 주문 완료 처리
     const handleCompleteOrder = async (orderId) => {
         if(!window.confirm("조리 완료 처리하시겠습니까?")) return;
+        const token = localStorage.getItem("token"); // ✨ 신분증(토큰) 꺼내기
         try {
-            await axios.patch(`${API_BASE_URL}/orders/${orderId}/complete`);
+            // ✨ 빈 데이터({})를 보내고, 세 번째 인자로 헤더에 토큰을 담아서 보냅니다!
+            await axios.patch(`${API_BASE_URL}/orders/${orderId}/complete`, {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
             setOrders(prev => {
                 const nextOrders = prev.filter(o => o.id !== orderId);
                 if (nextOrders.length === 0 && staffCalls.length === 0) stopAlarm();
@@ -141,8 +150,12 @@ function KitchenPage() {
 
     // 직원 호출 완료 처리
     const handleCompleteCall = async (callId) => {
+        const token = localStorage.getItem("token"); // ✨ 신분증(토큰) 꺼내기
         try {
-            await axios.patch(`${API_BASE_URL}/calls/${callId}/complete`);
+            // ✨ 마찬가지로 헤더에 토큰을 담아서 보냅니다!
+            await axios.patch(`${API_BASE_URL}/calls/${callId}/complete`, {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
             setStaffCalls(prev => {
                 const nextCalls = prev.filter(c => c.id !== callId);
                 if (orders.length === 0 && nextCalls.length === 0) stopAlarm();

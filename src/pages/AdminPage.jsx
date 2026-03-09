@@ -69,6 +69,8 @@ function HeadquartersView({ user, token }) {
                 <nav className="flex-1 p-4 space-y-2">
                     <div className="text-xs font-bold text-slate-500 mb-2 px-2 mt-2">현황 파악</div>
                     <HQMenuButton icon="🏪" label="가맹점 목록" active={activeTab==="stores"} onClick={()=>setActiveTab("stores")} />
+                    {/* ✨ 새로 추가된 통합 매출 버튼 */}
+                    <HQMenuButton icon="📈" label="통합 매출 현황" active={activeTab==="hq_sales"} onClick={()=>setActiveTab("hq_sales")} />
                     
                     {/* 공통 기능 (슈퍼 + 브랜드) */}
                     <div className="text-xs font-bold text-slate-500 mb-2 px-2 mt-6">운영 관리</div>
@@ -127,6 +129,7 @@ function HeadquartersView({ user, token }) {
                     )}
 
                     {/* 기능 탭들 */}
+                    {activeTab === "hq_sales" && <HQSalesDashboard token={token} currentUser={user} />}
                     {activeTab === "brand" && <AdminBrandManagement token={token} />}
                     {activeTab === "distribution" && <AdminMenuDistribution stores={stores} token={token} />}
                     {activeTab === "create_store" && <HQStoreCreate token={token} onSuccess={()=>setActiveTab("stores")} />}
@@ -330,7 +333,8 @@ function HQUserManage({ token, currentUser }) {
 
     useEffect(() => { 
         fetchUsers(); 
-        if (currentUser && currentUser.role === "SUPER_ADMIN") axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setBrands(res.data)).catch(()=>{});
+        // ✨ 권한 상관없이 브랜드와 매장 목록을 모두 가져와서 이름을 매칭할 준비를 합니다!
+        axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setBrands(res.data)).catch(()=>{});
         axios.get(`${API_BASE_URL}/groups/my/stores`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setStores(res.data)).catch(()=>{});
     }, []);
 
@@ -416,8 +420,13 @@ function HQUserManage({ token, currentUser }) {
                                         u.role==='STORE_OWNER'?'bg-blue-100 text-blue-700':'bg-gray-100'
                                     }`}>{u.role}</span>
                                 </td>
-                                <td className="p-3 text-sm text-gray-500">
-                                    {u.brand_id ? `브랜드(${u.brand_id})` : u.store_id ? `매장(${u.store_id})` : "-"}
+                                <td className="p-3 text-sm">
+                                    {/* ✨ 점주/직원처럼 매장 ID가 있으면 무조건 매장 이름부터 보여줍니다! */}
+                                    {u.store_id 
+                                        ? <span className="text-blue-700 font-bold">🏪 {stores.find(s => s.id === u.store_id)?.name || `매장(${u.store_id})`}</span>
+                                        : u.brand_id 
+                                            ? <span className="text-purple-700 font-bold">🏢 {brands.find(b => b.id === u.brand_id)?.name || `브랜드(${u.brand_id})`}</span>
+                                            : <span className="text-gray-400 font-bold">시스템 / 최고 관리자</span>}
                                 </td>
                                 <td className="p-3 text-sm">
                                     {u.is_active ? <span className="text-green-600 font-bold">🟢 활성</span> : <span className="text-red-500 font-bold">🔴 정지</span>}
@@ -430,6 +439,176 @@ function HQUserManage({ token, currentUser }) {
                     </tbody>
                 </table>
             </div>
+        </div>
+    );
+}
+
+// 2-5. 본사 통합 매출 대시보드 (브랜드/매장 드릴다운 기능 포함)
+function HQSalesDashboard({ token, currentUser }) {
+    const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+    const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+    const [stats, setStats] = useState(null);
+    const [loading, setLoading] = useState(false);
+    
+    // ✨ 드릴다운을 위한 뷰 상태 관리
+    const [viewMode, setViewMode] = useState(currentUser?.role === "SUPER_ADMIN" ? "brand" : "store"); 
+    const [selectedBrand, setSelectedBrand] = useState(null);
+    const [selectedStore, setSelectedStore] = useState(null);
+
+    const fetchHQStats = async () => {
+        setLoading(true);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/hq/stats?start_date=${startDate}&end_date=${endDate}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setStats(res.data);
+        } catch (err) { toast.error("매출 데이터 로딩 실패"); }
+        finally { setLoading(false); }
+    };
+
+    // 날짜가 바뀌면 자동으로 다시 불러옵니다.
+    useEffect(() => { fetchHQStats(); }, [startDate, endDate]);
+
+    // ✨ 특정 매장을 클릭한 경우: 점주용 상세 매출 컴포넌트를 그대로 재활용하여 띄웁니다!
+    if (selectedStore) {
+        return (
+            <div className="animate-fadeIn pb-20">
+                <button onClick={() => setSelectedStore(null)} className="mb-6 flex items-center gap-2 text-indigo-600 font-bold hover:bg-indigo-50 px-4 py-2 rounded-lg w-fit transition border border-indigo-100">
+                    ← 대시보드로 돌아가기
+                </button>
+                <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center gap-2">
+                    <span className="text-3xl">🏪</span> {selectedStore.name} 상세 매출 분석
+                </h2>
+                {/* 기존 점주용 컴포넌트 호출 (ID만 넘겨주면 알아서 작동합니다) */}
+                <AdminSales store={{ id: selectedStore.id }} token={token} />
+            </div>
+        );
+    }
+
+    // ✨ 슈퍼 관리자용: 데이터를 브랜드별로 그룹화하는 로직
+    let brandStatsArray = [];
+    if (stats && currentUser?.role === "SUPER_ADMIN") {
+        const brandStats = stats.store_stats.reduce((acc, curr) => {
+            const bName = curr.brand_name || "독립 매장";
+            if (!acc[bName]) acc[bName] = { brand_name: bName, revenue: 0, order_count: 0 };
+            acc[bName].revenue += curr.revenue;
+            acc[bName].order_count += curr.order_count;
+            return acc;
+        }, {});
+        brandStatsArray = Object.values(brandStats).sort((a, b) => b.revenue - a.revenue);
+    }
+
+    // 현재 화면에 띄울 목록 결정
+    let displayStats = [];
+    if (stats) {
+        if (viewMode === "brand") {
+            displayStats = brandStatsArray;
+        } else {
+            displayStats = stats.store_stats;
+            // 특정 브랜드를 선택했다면 해당 브랜드 매장만 필터링
+            if (selectedBrand) {
+                displayStats = displayStats.filter(s => (s.brand_name || "독립 매장") === selectedBrand);
+            }
+        }
+    }
+
+    return (
+        <div className="space-y-6 animate-fadeIn pb-20">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
+                <h2 className="text-2xl font-bold text-gray-800">📈 통합 매출 대시보드</h2>
+                <div className="flex items-center gap-2 bg-gray-100 p-2 rounded-lg">
+                    <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-transparent font-bold text-sm outline-none" />
+                    <span className="text-gray-400">~</span>
+                    <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-transparent font-bold text-sm outline-none" />
+                    <button onClick={fetchHQStats} className="bg-indigo-600 text-white px-4 py-1.5 rounded-md text-sm font-bold shadow-sm hover:bg-indigo-700 ml-2">조회</button>
+                </div>
+            </div>
+
+            {loading ? (
+                <div className="text-center py-20 text-indigo-400 font-bold animate-pulse">데이터를 집계하는 중입니다...</div>
+            ) : stats ? (
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-8 rounded-3xl shadow-lg">
+                            <p className="text-indigo-200 font-bold mb-2">전 지점 누적 총 매출액</p>
+                            <p className="text-5xl font-black">{stats.total_revenue.toLocaleString()}원</p>
+                        </div>
+                        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+                            <p className="text-gray-500 font-bold mb-2">전 지점 누적 주문 건수</p>
+                            <p className="text-5xl font-black text-gray-800">{stats.total_order_count}건</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b pb-4">
+                            <h3 className="font-bold text-xl flex items-center gap-2">
+                                🏆 {viewMode === "brand" ? "브랜드별 그룹 매출 순위" : selectedBrand ? `[${selectedBrand}] 소속 매장 순위` : "전체 매장 매출 순위"}
+                            </h3>
+                            
+                            <div className="flex gap-2">
+                                {selectedBrand && (
+                                    <button onClick={()=>{setSelectedBrand(null); setViewMode("brand");}} className="text-sm font-bold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200">
+                                        ← 전체 브랜드 목록으로
+                                    </button>
+                                )}
+                                {currentUser?.role === "SUPER_ADMIN" && !selectedBrand && (
+                                    <div className="flex bg-gray-100 p-1 rounded-lg">
+                                        <button onClick={()=>setViewMode("brand")} className={`px-4 py-1.5 text-sm font-bold rounded-md transition ${viewMode==="brand" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>브랜드별</button>
+                                        <button onClick={()=>setViewMode("store")} className={`px-4 py-1.5 text-sm font-bold rounded-md transition ${viewMode==="store" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>매장별</button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            {displayStats.map((item, idx) => {
+                                const maxRevenue = displayStats[0]?.revenue || 1; 
+                                const percent = (item.revenue / maxRevenue) * 100;
+                                const isBrand = viewMode === "brand";
+                                
+                                return (
+                                    <div 
+                                        key={isBrand ? item.brand_name : item.store_id} 
+                                        onClick={() => {
+                                            if (isBrand) {
+                                                setSelectedBrand(item.brand_name);
+                                                setViewMode("store");
+                                            } else {
+                                                setSelectedStore({ id: item.store_id, name: item.store_name });
+                                            }
+                                        }}
+                                        className="relative p-4 rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden group cursor-pointer hover:border-indigo-400 hover:shadow-md transition"
+                                    >
+                                        <div className="absolute top-0 left-0 h-full bg-indigo-100/40 transition-all duration-1000 ease-out" style={{ width: `${percent}%` }}></div>
+                                        
+                                        <div className="relative z-10 flex justify-between items-center">
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${idx === 0 ? "bg-yellow-400 text-white shadow-md" : idx === 1 ? "bg-gray-300 text-white shadow-sm" : idx === 2 ? "bg-orange-300 text-white shadow-sm" : "bg-white text-gray-400 border"}`}>
+                                                    {idx + 1}
+                                                </div>
+                                                <div>
+                                                    <span className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                                        {isBrand ? <span className="text-xl">🏢</span> : <span className="text-xl">🏪</span>}
+                                                        {isBrand ? item.brand_name : item.store_name}
+                                                        <span className="text-xs font-bold text-indigo-500 bg-white px-2 py-0.5 rounded-full border border-indigo-100 opacity-0 group-hover:opacity-100 transition shadow-sm ml-2">
+                                                            {isBrand ? "소속 매장 보기 👉" : "상세 분석 보기 👉"}
+                                                        </span>
+                                                    </span>
+                                                    <p className="text-xs text-gray-500 mt-1">총 {item.order_count}건 결제됨 {isBrand ? "" : `| ${item.brand_name || '독립 매장'}`}</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="block font-black text-2xl text-indigo-700">{item.revenue.toLocaleString()}원</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                            {displayStats.length === 0 && <p className="text-center text-gray-400 py-10">해당 기간에 발생한 매출이 없습니다.</p>}
+                        </div>
+                    </div>
+                </>
+            ) : null}
         </div>
     );
 }
@@ -617,6 +796,26 @@ function AdminMenuManagement({ store, token, fetchStore, user }) {
         setIsEditModalOpen(false); refreshAll();
     };
 
+    // ✨ [신규 추가] 카테고리 삭제 함수
+    const handleDeleteCategory = async (categoryId) => {
+        if(!window.confirm("카테고리를 삭제하면 안에 있는 '모든 메뉴'가 함께 삭제됩니다! 정말 삭제하시겠습니까?")) return;
+        try {
+            await axios.delete(`${API_BASE_URL}/categories/${categoryId}`, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("카테고리가 삭제되었습니다.");
+            refreshAll();
+        } catch(err) { toast.error("카테고리 삭제 실패"); }
+    };
+
+    // ✨ [신규 추가] 옵션 그룹 삭제 함수
+    const handleDeleteOptionGroup = async (groupId) => {
+        if(!window.confirm("이 옵션 그룹을 삭제하면 모든 세부 옵션이 사라지며, 연결된 메뉴에서도 해제됩니다. 정말 삭제하시겠습니까?")) return;
+        try {
+            await axios.delete(`${API_BASE_URL}/option-groups/${groupId}`, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("옵션 그룹이 삭제되었습니다.");
+            refreshAll();
+        } catch(err) { toast.error("옵션 그룹 삭제 실패"); }
+    };
+
     const saveGroup = async (groupId) => {
         await axios.patch(`${API_BASE_URL}/option-groups/${groupId}`, { 
             name: editingGroupName, 
@@ -761,7 +960,11 @@ function AdminMenuManagement({ store, token, fetchStore, user }) {
 
                 {store.categories?.map(cat => (
                     <div key={cat.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
-                        <h3 className="font-bold text-xl text-gray-800 mb-4 border-b pb-2">{cat.name}</h3>
+                        {/* ✨ 이름 옆에 삭제 버튼 추가! */}
+                        <h3 className="font-bold text-xl text-gray-800 mb-4 border-b pb-2 flex justify-between items-center">
+                            <span>{cat.name}</span>
+                            <button onClick={() => handleDeleteCategory(cat.id)} className="text-xs text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition font-bold">🗑️ 카테고리 삭제</button>
+                        </h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {cat.menus?.map(menu => (
                                 <div key={menu.id} onClick={() => openEditModal(menu)} className="flex gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-300 hover:shadow-md cursor-pointer transition bg-white items-center">
@@ -842,9 +1045,15 @@ function AdminMenuManagement({ store, token, fetchStore, user }) {
                                         </div>
                                     )}
                                 </div>
-                                <button onClick={() => setActiveOptionGroupId(activeOptionGroupId === group.id ? null : group.id)} className="text-xs border px-2 py-1 rounded hover:bg-gray-100 ml-1 shrink-0">
-                                    {activeOptionGroupId === group.id ? "닫기" : "관리"}
-                                </button>
+                                {/* ✨ 관리 버튼 옆에 삭제 버튼 나란히 추가! */}
+                                <div className="flex gap-1 ml-1 shrink-0">
+                                    <button onClick={() => setActiveOptionGroupId(activeOptionGroupId === group.id ? null : group.id)} className="text-xs border px-2 py-1 rounded hover:bg-gray-100 transition">
+                                        {activeOptionGroupId === group.id ? "닫기" : "관리"}
+                                    </button>
+                                    <button onClick={() => handleDeleteOptionGroup(group.id)} className="text-xs border border-red-200 text-red-500 hover:bg-red-50 px-2 py-1 rounded transition">
+                                        삭제
+                                    </button>
+                                </div>
                             </div>
                             
                             <ul className="text-sm space-y-1 mb-2">
@@ -1475,6 +1684,13 @@ function AdminPage() {
                     <MenuButton icon="🪑" label="테이블 관리" active={activeTab==="tables"} onClick={()=>setActiveTab("tables")} />
                     <MenuButton icon="💰" label="매출 관리" active={activeTab==="sales"} onClick={()=>setActiveTab("sales")} />
                     <MenuButton icon="👤" label="계정 관리" active={activeTab==="users"} onClick={()=>setActiveTab("users")} />
+                    
+                    {/* ✨ 점주/관리자가 주방 화면으로 바로 넘어갈 수 있는 버튼 추가 */}
+                    <div className="pt-4 mt-4 border-t border-gray-100">
+                        <a href={`/kitchen/${store.id}`} target="_blank" rel="noopener noreferrer" className="w-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-3 rounded-lg font-bold transition flex items-center gap-2">
+                            <span>🍳</span> 주방 KDS 화면 열기
+                        </a>
+                    </div>
                 </nav>
                 <div className="p-4 border-t">
                     <button onClick={handleLogout} className="w-full text-left text-sm text-red-500 hover:bg-red-50 px-4 py-3 rounded-lg font-bold transition flex items-center gap-2">
