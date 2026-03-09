@@ -221,7 +221,10 @@ function AdminMenuDistribution({ stores, token }) {
                 .then(res => setCategories(res.data.categories))
                 .catch(console.error);
         }
-    }, [selectedStoreId]);
+    }, [selectedStoreId, token]);
+
+    // ✨ [핵심 수정 1] 원본 매장을 제외한 '배포 가능한 대상 매장' 목록 만들기
+    const availableTargetStores = stores.filter(s => s.id.toString() !== selectedStoreId.toString());
 
     const toggleTargetStore = (id) => {
         const newSet = new Set(targetStoreIds);
@@ -229,9 +232,10 @@ function AdminMenuDistribution({ stores, token }) {
         setTargetStoreIds(newSet);
     };
 
+    // ✨ [핵심 수정 2] 전체 선택 시에도 '원본 매장'은 제외하고 선택하기
     const handleSelectAll = () => {
-        if (targetStoreIds.size === stores.length) setTargetStoreIds(new Set());
-        else setTargetStoreIds(new Set(stores.map(s => s.id)));
+        if (targetStoreIds.size === availableTargetStores.length) setTargetStoreIds(new Set());
+        else setTargetStoreIds(new Set(availableTargetStores.map(s => s.id)));
     };
 
     const handleDistribute = async () => {
@@ -243,8 +247,15 @@ function AdminMenuDistribution({ stores, token }) {
                 { source_category_id: parseInt(selectedCategoryId), target_store_ids: Array.from(targetStoreIds) }, 
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            toast.success("배포 완료!"); setStep(1); setSelectedStoreId(""); setTargetStoreIds(new Set());
-        } catch (err) { toast.error("배포 실패: " + (err.response?.data?.detail || "오류")); } finally { setLoading(false); }
+            toast.success("배포 완료!"); 
+            setStep(1); 
+            setSelectedStoreId(""); 
+            setTargetStoreIds(new Set());
+        } catch (err) { 
+            toast.error("배포 실패: " + (err.response?.data?.detail || "오류")); 
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     return (
@@ -277,16 +288,21 @@ function AdminMenuDistribution({ stores, token }) {
                 {step === 2 && (
                     <div className="space-y-4">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-bold">배포할 매장 선택 ({targetStoreIds.size}개)</h3>
+                            {/* ✨ [핵심 수정 3] 전체 매장 수가 아닌 필터링된 배포 가능 매장 수를 보여줌 */}
+                            <h3 className="text-xl font-bold">배포할 매장 선택 ({availableTargetStores.length}개 중 {targetStoreIds.size}개 선택됨)</h3>
                             <button onClick={handleSelectAll} className="text-sm font-bold text-indigo-600 border px-3 py-1 rounded hover:bg-indigo-50">전체 선택/해제</button>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto p-2">
-                            {stores.map(store => (
-                                <div key={store.id} onClick={()=>toggleTargetStore(store.id)} className={`p-4 rounded-xl border-2 cursor-pointer transition flex items-center justify-between ${targetStoreIds.has(store.id) ? "border-indigo-500 bg-indigo-50" : "border-gray-200"}`}>
+                            {/* ✨ [핵심 수정 4] stores 대신 availableTargetStores를 맵핑 */}
+                            {availableTargetStores.map(store => (
+                                <div key={store.id} onClick={()=>toggleTargetStore(store.id)} className={`p-4 rounded-xl border-2 cursor-pointer transition flex items-center justify-between ${targetStoreIds.has(store.id) ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300"}`}>
                                     <span className="font-bold text-gray-800">{store.name}</span>
                                     {targetStoreIds.has(store.id) && <span className="text-indigo-600 font-bold">✓</span>}
                                 </div>
                             ))}
+                            {availableTargetStores.length === 0 && (
+                                <div className="col-span-full py-8 text-center text-gray-400">배포할 다른 대상 매장이 없습니다.</div>
+                            )}
                         </div>
                         <div className="flex gap-3 mt-6">
                             <button onClick={()=>setStep(1)} className="flex-1 bg-gray-200 text-gray-700 py-4 rounded-xl font-bold">이전</button>
@@ -422,7 +438,7 @@ function HQUserManage({ token, currentUser }) {
 // 3. [점주용] 관리 컴포넌트들 (기존 기능 복구)
 // ==========================================
 
-function AdminStoreInfo({ store, token, fetchStore }) {
+function AdminStoreInfo({ store, token, fetchStore, user }) { // 👈 user 추가됨
     const [name, setName] = useState(store.name);
     const [address, setAddress] = useState(store.address || "");
     const [phone, setPhone] = useState(store.phone || "");
@@ -435,7 +451,10 @@ function AdminStoreInfo({ store, token, fetchStore }) {
     const [businessNumber, setBusinessNumber] = useState(store.business_number || "");
     
     const [brandId, setBrandId] = useState(store.brand_id || "");
+    const [priceMarkup, setPriceMarkup] = useState(store.price_markup || 0); // ✨ 할증 금액 상태 추가
     const [brands, setBrands] = useState([]);
+
+    const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); // 본사 권한 확인
 
     useEffect(() => {
         axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setBrands(res.data)).catch(()=>{});
@@ -444,7 +463,12 @@ function AdminStoreInfo({ store, token, fetchStore }) {
     const handleSave = async () => {
         try {
             await axios.patch(`${API_BASE_URL}/stores/${store.id}`, 
-                { name, address, phone, description: desc, notice, origin_info: originInfo, owner_name: ownerName, business_name: businessName, business_address: businessAddress, business_number: businessNumber, brand_id: brandId ? parseInt(brandId) : null },
+                { 
+                    name, address, phone, description: desc, notice, origin_info: originInfo, 
+                    owner_name: ownerName, business_name: businessName, business_address: businessAddress, 
+                    business_number: businessNumber, brand_id: brandId ? parseInt(brandId) : null,
+                    price_markup: parseInt(priceMarkup) // ✨ 할증 금액 저장
+                },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             toast.success("저장되었습니다."); fetchStore();
@@ -456,12 +480,19 @@ function AdminStoreInfo({ store, token, fetchStore }) {
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
                 <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">🏠 기본 정보</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="col-span-2">
+                    <div>
                         <label className="block text-sm font-bold text-gray-600 mb-1">소속 브랜드</label>
-                        <select className="w-full border p-3 rounded-lg bg-indigo-50" value={brandId} onChange={e=>setBrandId(e.target.value)}>
+                        <select className="w-full border p-3 rounded-lg bg-indigo-50" value={brandId} onChange={e=>setBrandId(e.target.value)} disabled={!isHQ}>
                             <option value="">독립 매장</option>
                             {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
+                    </div>
+                    {/* ✨ 가격 할증 입력칸 추가 */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-600 mb-1 flex justify-between">
+                            지점 기본 가격 할증 (원) {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                        </label>
+                        <input className={`w-full border p-3 rounded-lg ${!isHQ ? "bg-gray-100" : ""}`} type="number" value={priceMarkup} onChange={e=>setPriceMarkup(e.target.value)} disabled={!isHQ} placeholder="예: 강남점 500" />
                     </div>
                     <div className="col-span-2"><label className="block text-sm font-bold text-gray-600 mb-1">가게 이름</label><input className="w-full border p-3 rounded-lg" value={name} onChange={e=>setName(e.target.value)} /></div>
                     <div><label className="block text-sm font-bold text-gray-600 mb-1">전화번호</label><input className="w-full border p-3 rounded-lg" value={phone} onChange={e=>setPhone(e.target.value)} /></div>
@@ -470,25 +501,19 @@ function AdminStoreInfo({ store, token, fetchStore }) {
                 </div>
             </div>
             
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-                <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">📢 알림 & 정보</h2>
-                <div className="space-y-4">
-                    <div><label className="block text-sm font-bold text-gray-600 mb-1">공지사항</label><textarea className="w-full border p-3 rounded-lg h-20 resize-none" value={notice} onChange={e=>setNotice(e.target.value)} /></div>
-                    <div><label className="block text-sm font-bold text-gray-600 mb-1">원산지 표시</label><textarea className="w-full border p-3 rounded-lg h-20 resize-none" value={originInfo} onChange={e=>setOriginInfo(e.target.value)} /></div>
-                </div>
-            </div>
-            
             <button onClick={handleSave} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 shadow-md">저장하기</button>
         </div>
     );
 }
 
-function AdminMenuManagement({ store, token, fetchStore }) {
+function AdminMenuManagement({ store, token, fetchStore, user }) {
+    const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); // 👈 본사 권한 확인 추가
     const [storeOptionGroups, setStoreOptionGroups] = useState([]);
     const [categoryName, setCategoryName] = useState("");
     const [selectedCategoryId, setSelectedCategoryId] = useState("");
     const [menuName, setMenuName] = useState("");
     const [menuPrice, setMenuPrice] = useState("");
+    const [isPriceFixed, setIsPriceFixed] = useState(false); // ✨ 신규 생성용 '가격 고정' 상태 추가
     const [menuDesc, setMenuDesc] = useState("");
     const [menuImage, setMenuImage] = useState(null);
     const [newGroupName, setNewGroupName] = useState("");
@@ -513,9 +538,11 @@ function AdminMenuManagement({ store, token, fetchStore }) {
     useEffect(() => { refreshOptionGroups(); }, [store.id]);
 
     const refreshOptionGroups = () => {
-        axios.get(`${API_BASE_URL}/stores/${store.id}/option-groups/`)
-             .then(res => setStoreOptionGroups(res.data))
-             .catch(console.error);
+        axios.get(`${API_BASE_URL}/stores/${store.id}/option-groups/`, {
+            headers: { Authorization: `Bearer ${token}` } // 👈 핵심: 신분증(토큰) 제시!
+        })
+        .then(res => setStoreOptionGroups(res.data))
+        .catch(console.error);
     };
 
     const refreshAll = () => { fetchStore(); refreshOptionGroups(); };
@@ -532,10 +559,10 @@ function AdminMenuManagement({ store, token, fetchStore }) {
         const category = store.categories.find(c => c.id == selectedCategoryId);
         const nextOrder = category && category.menus.length > 0 ? Math.max(...category.menus.map(m => m.order_index)) + 1 : 1;
         await axios.post(`${API_BASE_URL}/categories/${selectedCategoryId}/menus/`, 
-            { name: menuName, price: parseInt(menuPrice), description: menuDesc, image_url: menuImage, order_index: nextOrder }, 
+            { name: menuName, price: parseInt(menuPrice), description: menuDesc, image_url: menuImage, order_index: nextOrder, is_price_fixed: isPriceFixed }, // 👈 추가됨
             {headers:{Authorization:`Bearer ${token}`}}
         );
-        setMenuName(""); setMenuPrice(""); setMenuDesc(""); setMenuImage(null); refreshAll();
+        setMenuName(""); setMenuPrice(""); setMenuDesc(""); setMenuImage(null); setIsPriceFixed(false); refreshAll(); // 👈 초기화 추가됨
     };
 
     const handleCreateOptionGroup = async () => {
@@ -578,17 +605,39 @@ function AdminMenuManagement({ store, token, fetchStore }) {
             description: editingMenu.description,
             is_sold_out: editingMenu.is_sold_out,
             is_hidden: editingMenu.is_hidden,
-            image_url: editingMenu.image_url
-        });
+            image_url: editingMenu.image_url,
+            is_price_fixed: editingMenu.is_price_fixed // 👈 추가됨
+        }, { headers: { Authorization: `Bearer ${token}` } }); 
         toast.success("수정되었습니다."); setIsEditModalOpen(false); refreshAll();
     };
 
     const handleDeleteMenu = async () => {
         if(!window.confirm("정말 삭제하시겠습니까?")) return;
-        await axios.delete(`${API_BASE_URL}/menus/${editingMenu.id}`);
+        await axios.delete(`${API_BASE_URL}/menus/${editingMenu.id}`, { headers: { Authorization: `Bearer ${token}` } }); // 👈 토큰 추가됨!
         setIsEditModalOpen(false); refreshAll();
     };
 
+    const saveGroup = async (groupId) => {
+        await axios.patch(`${API_BASE_URL}/option-groups/${groupId}`, { 
+            name: editingGroupName, 
+            is_single_select: editingGroupSingle, 
+            is_required: editingGroupRequired,
+            max_select: parseInt(editingGroupMax)
+        }, { headers: { Authorization: `Bearer ${token}` } }); // 👈 토큰 추가됨!
+        setEditingGroupId(null); refreshAll();
+    };
+    
+    const handleUpdateGroupOrder = async (groupId, newOrder) => {
+        await axios.patch(`${API_BASE_URL}/option-groups/${groupId}`, { order_index: parseInt(newOrder) }, { headers: { Authorization: `Bearer ${token}` } });
+        refreshAll();
+    };
+
+    const saveOption = async (optId) => {
+        await axios.patch(`${API_BASE_URL}/options/${optId}`, { name: editingOptionName, price: parseInt(editingOptionPrice) }, { headers: { Authorization: `Bearer ${token}` } });
+        setEditingOptionId(null); refreshAll();
+    };
+    
+    // 💡 [추가] 옵션 그룹 수정 모드 켜기
     const startEditGroup = (group) => {
         setEditingGroupId(group.id);
         setEditingGroupName(group.name);
@@ -596,49 +645,51 @@ function AdminMenuManagement({ store, token, fetchStore }) {
         setEditingGroupRequired(group.is_required);
         setEditingGroupMax(group.max_select || 0);
     };
-    const saveGroup = async (groupId) => {
-        await axios.patch(`${API_BASE_URL}/option-groups/${groupId}`, { 
-            name: editingGroupName, 
-            is_single_select: editingGroupSingle, 
-            is_required: editingGroupRequired,
-            max_select: parseInt(editingGroupMax)
-        });
-        setEditingGroupId(null); refreshAll();
-    };
-    const handleUpdateGroupOrder = async (groupId, newOrder) => {
-        await axios.patch(`${API_BASE_URL}/option-groups/${groupId}`, { order_index: parseInt(newOrder) });
-        refreshAll();
-    };
 
+    // 💡 [추가] 세부 옵션 항목 수정 모드 켜기
     const startEditOption = (opt) => {
         setEditingOptionId(opt.id);
         setEditingOptionName(opt.name);
-        setEditingOptionPrice(opt.price);
+        setEditingOptionPrice(opt.price || 0);
     };
-    const saveOption = async (optId) => {
-        await axios.patch(`${API_BASE_URL}/options/${optId}`, { name: editingOptionName, price: parseInt(editingOptionPrice) });
-        setEditingOptionId(null); refreshAll();
-    };
+
     const handleUpdateOptionOrder = async (optId, newOrder) => {
-        await axios.patch(`${API_BASE_URL}/options/${optId}`, { order_index: parseInt(newOrder) });
+        await axios.patch(`${API_BASE_URL}/options/${optId}`, { order_index: parseInt(newOrder) }, { headers: { Authorization: `Bearer ${token}` } });
         refreshAll();
     };
-    const handleUpdateOptionDefault = async (optId) => {
-        await axios.patch(`${API_BASE_URL}/options/${optId}`, { is_default: true });
-        refreshAll();
+    
+    const handleUpdateOptionDefault = async (groupId, optId) => {
+        try {
+            const group = storeOptionGroups.find(g => g.id === groupId);
+            
+            // 💡 1택(단일 선택)이거나 필수인 경우, 그룹 내의 다른 '기본값'들을 찾아 모두 해제(false)시킴
+            if (group && (group.is_single_select || group.is_required)) {
+                const existingDefaults = group.options.filter(o => o.is_default && o.id !== optId);
+                for (const oldOpt of existingDefaults) {
+                    await axios.patch(`${API_BASE_URL}/options/${oldOpt.id}`, { is_default: false }, { headers: { Authorization: `Bearer ${token}` } });
+                }
+            }
+            
+            // 클릭한 옵션을 새로운 기본값(true)으로 설정
+            await axios.patch(`${API_BASE_URL}/options/${optId}`, { is_default: true }, { headers: { Authorization: `Bearer ${token}` } });
+            refreshAll();
+        } catch (err) {
+            toast.error("기본 설정 변경에 실패했습니다.");
+        }
     };
+    
     const handleDeleteOption = async (optId) => {
         if(!window.confirm("삭제하시겠습니까?")) return;
-        await axios.delete(`${API_BASE_URL}/options/${optId}`);
+        await axios.delete(`${API_BASE_URL}/options/${optId}`, { headers: { Authorization: `Bearer ${token}` } });
         refreshAll();
     };
 
     const toggleOptionGroupLink = async (groupId, isLinked) => {
         try {
             if (isLinked) {
-                await axios.delete(`${API_BASE_URL}/menus/${editingMenu.id}/option-groups/${groupId}`);
+                await axios.delete(`${API_BASE_URL}/menus/${editingMenu.id}/option-groups/${groupId}`, { headers: { Authorization: `Bearer ${token}` } });
             } else {
-                await axios.post(`${API_BASE_URL}/menus/${editingMenu.id}/link-option-group/${groupId}`);
+                await axios.post(`${API_BASE_URL}/menus/${editingMenu.id}/link-option-group/${groupId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
             }
             
             let updatedGroups = [];
@@ -667,8 +718,8 @@ function AdminMenuManagement({ store, token, fetchStore }) {
         try {
             const item1 = groups[index];
             const item2 = groups[targetIndex];
-            await axios.patch(`${API_BASE_URL}/menus/${editingMenu.id}/option-groups/${item1.id}/reorder`, { order_index: index + 1 });
-            await axios.patch(`${API_BASE_URL}/menus/${editingMenu.id}/option-groups/${item2.id}/reorder`, { order_index: targetIndex + 1 });
+            await axios.patch(`${API_BASE_URL}/menus/${editingMenu.id}/option-groups/${item1.id}/reorder`, { order_index: index + 1 }, { headers: { Authorization: `Bearer ${token}` } });
+            await axios.patch(`${API_BASE_URL}/menus/${editingMenu.id}/option-groups/${item2.id}/reorder`, { order_index: targetIndex + 1 }, { headers: { Authorization: `Bearer ${token}` } });
             refreshAll();
         } catch (err) { console.error("순서 변경 실패", err); }
     };
@@ -692,6 +743,15 @@ function AdminMenuManagement({ store, token, fetchStore }) {
                         <input className="border p-2 rounded" placeholder="가격" type="number" value={menuPrice} onChange={e=>setMenuPrice(e.target.value)}/>
                     </div>
                     <input className="border p-2 rounded w-full mb-2" placeholder="메뉴 상세 설명" value={menuDesc} onChange={e=>setMenuDesc(e.target.value)}/>
+                    
+                    {/* ✨ 추가된 UI: 본사 권한일 때만 메뉴 고정 체크박스 노출 */}
+                    {isHQ && (
+                        <label className="flex items-center gap-2 mb-3 bg-red-50 p-2 rounded border border-red-100 cursor-pointer">
+                            <input type="checkbox" checked={isPriceFixed} onChange={e=>setIsPriceFixed(e.target.checked)}/>
+                            <span className="text-sm font-bold text-red-700">🔒 이 메뉴의 가격을 전 지점에서 강제 고정합니다 (점주 수정 불가)</span>
+                        </label>
+                    )}
+                    
                     <div className="flex items-center gap-2 mb-3">
                         <input type="file" onChange={e=>handleImageUpload(e, setMenuImage)} className="text-sm py-2 text-gray-500"/>
                         {menuImage && <span className="text-xs text-green-600 font-bold">이미지 업로드됨</span>}
@@ -767,12 +827,18 @@ function AdminMenuManagement({ store, token, fetchStore }) {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="flex items-center gap-1 cursor-pointer hover:bg-gray-50 rounded px-1 flex-1 min-w-0 flex-wrap" onClick={()=>startEditGroup(group)}>
-                                            <span className="font-bold text-gray-800 text-sm truncate mr-1">{group.name}</span>
+                                        <div className="flex items-center gap-1 cursor-pointer hover:bg-gray-50 rounded px-1 flex-1 min-w-0 flex-wrap py-1" onClick={()=>startEditGroup(group)}>
+                                            {/* ✨ 핵심: 이름 아래에 상세 옵션 미리보기를 추가했습니다! */}
+                                            <div className="flex flex-col min-w-0 mr-2 flex-1">
+                                                <span className="font-bold text-gray-800 text-sm truncate">{group.name}</span>
+                                                <span className="text-[10px] text-gray-400 truncate mt-0.5">
+                                                    {group.options && group.options.length > 0 ? group.options.map(o => o.name).join(", ") : "세부 옵션 없음"}
+                                                </span>
+                                            </div>
                                             {group.is_single_select && <span className="text-[9px] bg-yellow-100 text-yellow-800 px-1 rounded shrink-0">1택</span>}
                                             {group.is_required && <span className="text-[9px] bg-red-100 text-red-800 px-1 rounded shrink-0">필수</span>}
                                             {!group.is_single_select && group.max_select > 0 && <span className="text-[9px] bg-purple-100 text-purple-800 px-1 rounded shrink-0">Max {group.max_select}</span>}
-                                            <span className="text-[10px] text-gray-400 ml-auto">✏️</span>
+                                            <span className="text-[10px] text-gray-400 ml-auto pl-1">✏️</span>
                                         </div>
                                     )}
                                 </div>
@@ -799,7 +865,7 @@ function AdminMenuManagement({ store, token, fetchStore }) {
                                                         {(group.is_single_select || group.is_required) && (
                                                             opt.is_default 
                                                             ? <span className="text-[9px] bg-green-100 text-green-700 px-1 rounded border border-green-200 shrink-0">기본</span> 
-                                                            : <button onClick={()=>handleUpdateOptionDefault(opt.id)} className="text-[9px] text-gray-300 hover:text-blue-500 shrink-0">기본설정</button>
+                                                            : <button onClick={()=>handleUpdateOptionDefault(group.id, opt.id)} className="text-[9px] text-gray-300 hover:text-blue-500 shrink-0">기본설정</button>
                                                         )}
                                                         <span className="text-gray-700 truncate">{opt.name}</span>
                                                     </div>
@@ -848,20 +914,34 @@ function AdminMenuManagement({ store, token, fetchStore }) {
                             {editTab === "basic" ? (
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="block text-sm font-bold text-gray-700 mb-1">메뉴 이름</label><input className="border w-full p-2 rounded" value={editingMenu.name} onChange={e=>setEditingMenu({...editingMenu, name: e.target.value})} /></div>
-                                        <div><label className="block text-sm font-bold text-gray-700 mb-1">가격</label><input className="border w-full p-2 rounded" type="number" value={editingMenu.price} onChange={e=>setEditingMenu({...editingMenu, price: e.target.value})} /></div>
+                                        {/* ✨ 본사가 가격 고정 시 메뉴명과 설명란도 함께 잠깁니다. */}
+                                        <div><label className="block text-sm font-bold text-gray-700 mb-1">메뉴 이름</label><input className="border w-full p-2 rounded" value={editingMenu.name} onChange={e=>setEditingMenu({...editingMenu, name: e.target.value})} disabled={!isHQ && editingMenu.is_price_fixed} /></div>
+                                        <div>
+                                            {/* ✨ 고정된 메뉴라면 점주에게는 입력창을 잠그고 안내문을 띄움 */}
+                                            <label className="block text-sm font-bold text-gray-700 mb-1 flex justify-between">가격 {(!isHQ && editingMenu.is_price_fixed) && <span className="text-xs text-red-500 font-bold">본사 고정 가격</span>}</label>
+                                            <input className={`border w-full p-2 rounded ${(!isHQ && editingMenu.is_price_fixed) ? "bg-gray-100 text-gray-400" : ""}`} type="number" disabled={!isHQ && editingMenu.is_price_fixed} value={editingMenu.price} onChange={e=>setEditingMenu({...editingMenu, price: e.target.value})} />
+                                        </div>
                                     </div>
-                                    <div><label className="block text-sm font-bold text-gray-700 mb-1">설명</label><textarea className="border w-full p-2 rounded resize-none" rows="3" value={editingMenu.description || ""} onChange={e=>setEditingMenu({...editingMenu, description: e.target.value})} /></div>
+                                    <div><label className="block text-sm font-bold text-gray-700 mb-1">설명</label><textarea className="border w-full p-2 rounded resize-none" rows="3" value={editingMenu.description || ""} onChange={e=>setEditingMenu({...editingMenu, description: e.target.value})} disabled={!isHQ && editingMenu.is_price_fixed} /></div>
                                     <div><label className="block text-sm font-bold text-gray-700 mb-1">이미지 URL</label><input className="border w-full p-2 rounded text-sm text-gray-500" value={editingMenu.image_url || ""} disabled placeholder="이미지 변경은 삭제 후 재등록이 필요합니다." /></div>
-                                    <div className="flex gap-6 pt-2">
-                                        <label className="flex items-center gap-2 cursor-pointer p-2 border rounded hover:bg-gray-50 flex-1"><input type="checkbox" checked={editingMenu.is_sold_out} onChange={e=>setEditingMenu({...editingMenu, is_sold_out: e.target.checked})} className="w-5 h-5 text-red-600"/> <span className="font-bold text-red-600">품절 처리</span></label>
-                                        <label className="flex items-center gap-2 cursor-pointer p-2 border rounded hover:bg-gray-50 flex-1"><input type="checkbox" checked={editingMenu.is_hidden} onChange={e=>setEditingMenu({...editingMenu, is_hidden: e.target.checked})} className="w-5 h-5 text-gray-600"/> <span className="font-bold text-gray-600">메뉴 숨김</span></label>
+                                    <div className="flex gap-6 pt-2 flex-wrap">
+                                        <label className="flex items-center gap-2 cursor-pointer p-2 border rounded hover:bg-gray-50 flex-1 min-w-[120px]"><input type="checkbox" checked={editingMenu.is_sold_out} onChange={e=>setEditingMenu({...editingMenu, is_sold_out: e.target.checked})} className="w-5 h-5 text-red-600"/> <span className="font-bold text-red-600">품절 처리</span></label>
+                                        <label className="flex items-center gap-2 cursor-pointer p-2 border rounded hover:bg-gray-50 flex-1 min-w-[120px]"><input type="checkbox" checked={editingMenu.is_hidden} onChange={e=>setEditingMenu({...editingMenu, is_hidden: e.target.checked})} className="w-5 h-5 text-gray-600"/> <span className="font-bold text-gray-600">메뉴 숨김</span></label>
+                                        
+                                        {/* ✨ 여기에 추가되었습니다! 본사 권한(isHQ)일 때만 수정 모달에서 고정 설정 체크박스 노출 */}
+                                        {isHQ && (
+                                            <label className="flex items-center gap-2 cursor-pointer p-2 border rounded border-red-200 bg-red-50 hover:bg-red-100 flex-1 min-w-[150px]">
+                                                <input type="checkbox" checked={editingMenu.is_price_fixed} onChange={e=>setEditingMenu({...editingMenu, is_price_fixed: e.target.checked})} className="w-5 h-5 text-red-600"/> 
+                                                <span className="font-bold text-red-800 text-sm">본사 가격 고정</span>
+                                            </label>
+                                        )}
                                     </div>
                                     <div className="flex gap-2 mt-4 pt-4 border-t">
                                         <button onClick={handleUpdateMenuBasic} className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">수정 저장</button>
                                         <button onClick={handleDeleteMenu} className="bg-red-100 text-red-600 px-4 py-3 rounded-lg font-bold hover:bg-red-200">삭제</button>
                                     </div>
                                 </div>
+
                             ) : (
                                 <div className="space-y-6">
                                     <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
@@ -890,14 +970,17 @@ function AdminMenuManagement({ store, token, fetchStore }) {
                                                 const isLinked = editingMenu.option_groups?.some(g => g.id === group.id);
                                                 return (
                                                     <div key={group.id} onClick={() => toggleOptionGroupLink(group.id, isLinked)} className={`p-4 rounded-xl border-2 cursor-pointer transition flex items-center justify-between ${isLinked ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-400 bg-white"}`}>
-                                                        <div className="min-w-0">
+                                                        <div className="min-w-0 flex-1">
                                                             <div className="flex items-center gap-2">
                                                                 <span className={`font-bold truncate ${isLinked ? "text-indigo-800" : "text-gray-700"}`}>{group.name}</span>
                                                                 {group.is_required && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold shrink-0">필수</span>}
                                                                 {group.is_single_select && <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-bold shrink-0">1택</span>}
                                                                 {!group.is_single_select && group.max_select > 0 && <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-bold shrink-0">Max {group.max_select}</span>}
                                                             </div>
-                                                            <p className="text-xs text-gray-400 mt-1">{group.options.length}개 항목</p>
+                                                            {/* ✨ 핵심: 체크하는 곳에서도 상세 옵션을 미리 볼 수 있습니다! */}
+                                                            <p className="text-[11px] text-gray-500 mt-1 truncate">
+                                                                {group.options && group.options.length > 0 ? group.options.map(o => o.name).join(", ") : "비어있음"}
+                                                            </p>
                                                         </div>
                                                         <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition ${isLinked ? "bg-indigo-600 border-indigo-600" : "border-gray-300 bg-white"}`}>
                                                             {isLinked && <span className="text-white text-sm font-bold">✓</span>}
@@ -1401,8 +1484,8 @@ function AdminPage() {
             </div>
             {/* 메인 컨텐츠 영역 */}
             <div className="flex-1 ml-64 p-8 overflow-y-auto">
-                {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} />}
-                {activeTab === "menu" && <AdminMenuManagement store={store} token={token} fetchStore={fetchStore} />}
+                {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} user={user} />}
+                {activeTab === "menu" && <AdminMenuManagement store={store} token={token} fetchStore={fetchStore} user={user} />}
                 {activeTab === "callOptions" && <AdminCallOptionManagement store={store} token={token} />}
                 {activeTab === "hours" && <AdminHours store={store} token={token} fetchStore={fetchStore} />}
                 {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
