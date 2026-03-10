@@ -1,0 +1,533 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { API_BASE_URL } from "../../config";
+import toast from "react-hot-toast";
+
+// 1. 영업장 정보 관리
+export function AdminStoreInfo({ store, token, fetchStore, user }) { 
+    const [name, setName] = useState(store.name);
+    const [address, setAddress] = useState(store.address || "");
+    const [phone, setPhone] = useState(store.phone || "");
+    const [desc, setDesc] = useState(store.description || "");
+    const [notice, setNotice] = useState(store.notice || "");
+    const [originInfo, setOriginInfo] = useState(store.origin_info || "");
+    const [ownerName, setOwnerName] = useState(store.owner_name || "");
+    const [businessName, setBusinessName] = useState(store.business_name || "");
+    const [businessAddress, setBusinessAddress] = useState(store.business_address || "");
+    const [businessNumber, setBusinessNumber] = useState(store.business_number || "");
+    
+    const [brandId, setBrandId] = useState(store.brand_id || "");
+    const [priceMarkup, setPriceMarkup] = useState(store.price_markup || 0); 
+    const [brands, setBrands] = useState([]);
+    
+    // ✨ 로열티 관련 상태
+    const [royaltyType, setRoyaltyType] = useState(store.royalty_type || "PERCENTAGE"); 
+    const [royaltyAmount, setRoyaltyAmount] = useState(store.royalty_amount || 0); 
+
+    // ✨ [신규] 지역 및 직영/가맹 운영 타입 상태
+    const [region, setRegion] = useState(store.region || "미지정");
+    const [isDirectManage, setIsDirectManage] = useState(store.is_direct_manage || false);
+
+    const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); // 본사 권한 확인
+
+    useEffect(() => {
+        axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setBrands(res.data)).catch(()=>{});
+    }, []);
+
+    const handleSave = async () => {
+        try {
+            await axios.patch(`${API_BASE_URL}/stores/${store.id}`, 
+                { 
+                    name, address, phone, description: desc, notice, origin_info: originInfo, 
+                    owner_name: ownerName, business_name: businessName, business_address: businessAddress, 
+                    business_number: businessNumber, 
+                    brand_id: brandId ? parseInt(brandId) : null,
+                    price_markup: parseInt(priceMarkup),
+                    royalty_type: royaltyType,                 // ✨ 로열티 타입 저장
+                    royalty_amount: parseFloat(royaltyAmount), // ✨ 로열티 금액 저장
+                    region: region,                            // ✨ [신규] 지역 정보 저장
+                    is_direct_manage: isDirectManage           // ✨ [신규] 직영/가맹 여부 저장
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("가게 정보가 성공적으로 저장되었습니다."); 
+            fetchStore();
+        } catch(err) { 
+            toast.error("저장 실패"); 
+        }
+    };
+
+    return (
+        <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+                <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">🏠 기본 정보</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-bold text-gray-600 mb-1">소속 브랜드</label>
+                        <select className="w-full border p-3 rounded-lg bg-indigo-50" value={brandId} onChange={e=>setBrandId(e.target.value)} disabled={!isHQ}>
+                            <option value="">독립 매장</option>
+                            {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-gray-600 mb-1 flex justify-between">
+                            지점 기본 가격 할증 (원) {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                        </label>
+                        <input className={`w-full border p-3 rounded-lg ${!isHQ ? "bg-gray-100" : ""}`} type="number" value={priceMarkup} onChange={e=>setPriceMarkup(e.target.value)} disabled={!isHQ} placeholder="예: 강남점 500" />
+                    </div>
+
+                    {/* ✨ [신규] 매장 운영 분류 설정 (본사 전용) */}
+                    <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
+                        <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
+                            🗺️ 매장 운영 분류 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <select 
+                                className={`w-full sm:w-1/3 border p-3 rounded-lg font-bold ${!isHQ ? "bg-gray-100" : "bg-white"}`} 
+                                value={region} onChange={e=>setRegion(e.target.value)} disabled={!isHQ}
+                            >
+                                <option value="미지정">지역 선택 안함</option>
+                                <option value="서울">서울</option>
+                                <option value="경기">경기</option>
+                                <option value="인천">인천</option>
+                                <option value="강원">강원</option>
+                                <option value="충청">충청</option>
+                                <option value="전라">전라</option>
+                                <option value="경상">경상</option>
+                                <option value="부산">부산</option>
+                                <option value="제주">제주</option>
+                            </select>
+                            <select 
+                                className={`w-full sm:w-2/3 border p-3 rounded-lg font-bold ${!isHQ ? "bg-gray-100" : "text-indigo-700 bg-indigo-50"}`} 
+                                value={isDirectManage} onChange={e=>setIsDirectManage(e.target.value === 'true')} disabled={!isHQ}
+                            >
+                                <option value={false}>🤝 가맹점 (Franchise)</option>
+                                <option value={true}>🏢 본사 직영점 (Direct)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
+                        <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
+                            👑 본사 로열티 (수수료) 정책 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <select 
+                                className={`border p-3 rounded-lg flex-1 font-bold ${!isHQ ? "bg-gray-100" : "bg-white"}`}
+                                value={royaltyType} onChange={e=>setRoyaltyType(e.target.value)} disabled={!isHQ}
+                            >
+                                <option value="PERCENTAGE">매출 비례 방식 (%)</option>
+                                <option value="FIXED">고정 금액 방식 (원)</option>
+                            </select>
+                            <div className="flex-1 relative">
+                                <input 
+                                    className={`w-full border p-3 rounded-lg text-right pr-8 font-bold ${!isHQ ? "bg-gray-100" : ""}`} 
+                                    type="number" step={royaltyType === "PERCENTAGE" ? "0.1" : "1000"} 
+                                    value={royaltyAmount} onChange={e=>setRoyaltyAmount(e.target.value)} disabled={!isHQ} 
+                                    placeholder={royaltyType === "PERCENTAGE" ? "예: 3.5" : "예: 300000"} 
+                                />
+                                <span className="absolute right-3 top-3.5 text-gray-400 font-bold">{royaltyType === "PERCENTAGE" ? "%" : "원"}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="col-span-2"><label className="block text-sm font-bold text-gray-600 mb-1">가게 이름</label><input className="w-full border p-3 rounded-lg" value={name} onChange={e=>setName(e.target.value)} /></div>
+                    <div><label className="block text-sm font-bold text-gray-600 mb-1">전화번호</label><input className="w-full border p-3 rounded-lg" value={phone} onChange={e=>setPhone(e.target.value)} /></div>
+                    <div className="col-span-2"><label className="block text-sm font-bold text-gray-600 mb-1">가게 주소</label><input className="w-full border p-3 rounded-lg" value={address} onChange={e=>setAddress(e.target.value)} /></div>
+                    <div className="col-span-2"><label className="block text-sm font-bold text-gray-600 mb-1">가게 소개</label><textarea className="w-full border p-3 rounded-lg h-20 resize-none" value={desc} onChange={e=>setDesc(e.target.value)} /></div>
+                </div>
+            </div>
+            
+            <button onClick={handleSave} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 shadow-md">저장하기</button>
+        </div>
+    );
+}
+
+// 2. 직원 호출 옵션 관리
+export function AdminCallOptionManagement({ store, token }) { 
+    const [options, setOptions] = useState([]);
+    const [newName, setNewName] = useState("");
+
+    const fetchOptions = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/stores/${store.id}/call-options`, { headers: { Authorization: `Bearer ${token}` } });
+            setOptions(res.data);
+        } catch (err) { console.error("옵션 로딩 실패"); }
+    };
+
+    useEffect(() => { fetchOptions(); }, [store.id]);
+
+    const handleAdd = async () => {
+        if (!newName) return;
+        try {
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/call-options`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
+            setNewName(""); fetchOptions();
+        } catch (err) { toast.error("추가 실패"); }
+    };
+
+    const handleDelete = async (id) => {
+        if (!window.confirm("삭제하시겠습니까?")) return;
+        try { await axios.delete(`${API_BASE_URL}/call-options/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchOptions(); }
+        catch (err) { toast.error("삭제 실패"); }
+    };
+
+    return (
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 pb-20">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">🔔 직원 호출 옵션 관리</h2>
+            <div className="flex gap-2 mb-6">
+                <input className="border p-3 rounded-lg flex-1 text-lg" placeholder="새로운 요청 항목 (예: 물티슈)" value={newName} onChange={e=>setNewName(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleAdd()} />
+                <button onClick={handleAdd} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700 shadow-md">추가하기</button>
+            </div>
+            <div className="space-y-3">
+                {options.map(opt => (
+                    <div key={opt.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <span className="font-bold text-gray-700 text-lg">{opt.name}</span>
+                        <button onClick={()=>handleDelete(opt.id)} className="text-red-500 hover:text-red-700 font-bold text-sm bg-white border border-red-100 px-3 py-1 rounded-lg">삭제</button>
+                    </div>
+                ))}
+                {options.length === 0 && <p className="text-center text-gray-400 py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">등록된 옵션이 없습니다.</p>}
+            </div>
+            <div className="mt-8 p-5 bg-yellow-50 rounded-xl text-sm text-yellow-800 border border-yellow-200 flex items-start gap-3"><span className="text-xl">💡</span><div><p className="font-bold text-lg mb-1">알아두세요</p><p><b>'직원만 호출 🙋'</b> 버튼은 시스템 기본값으로 항상 표시됩니다.</p></div></div>
+        </div>
+    );
+}
+
+// 3. 영업 시간 관리
+export function AdminHours({ store, token, fetchStore }) { 
+    const [hours, setHours] = useState([]);
+    const [holidays, setHolidays] = useState([]);
+    const [newHolidayDate, setNewHolidayDate] = useState("");
+    const [newHolidayDesc, setNewHolidayDesc] = useState("");
+
+    const days = ["월", "화", "수", "목", "금", "토", "일"];
+
+    useEffect(() => {
+        if (store.operating_hours && store.operating_hours.length > 0) {
+            const sorted = [...store.operating_hours].sort((a, b) => a.day_of_week - b.day_of_week);
+            const fullHours = Array.from({ length: 7 }, (_, i) => {
+                const exist = sorted.find(h => h.day_of_week === i);
+                return exist || { day_of_week: i, open_time: "09:00", close_time: "22:00", is_closed: false };
+            });
+            setHours(fullHours);
+        } else {
+            setHours(Array.from({ length: 7 }, (_, i) => ({ day_of_week: i, open_time: "09:00", close_time: "22:00", is_closed: false })));
+        }
+        setHolidays(store.holidays || []);
+    }, [store]);
+
+    const handleHourChange = (index, field, value) => {
+        const newHours = [...hours];
+        newHours[index] = { ...newHours[index], [field]: value };
+        setHours(newHours);
+    };
+
+    const handleSaveHours = async () => {
+        try {
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/hours`, hours, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("영업시간이 저장되었습니다.");
+            fetchStore();
+        } catch (err) { toast.error("저장 실패"); }
+    };
+
+    const handleAddHoliday = async () => {
+        if (!newHolidayDate) return;
+        try {
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/holidays`, 
+                { date: newHolidayDate, description: newHolidayDesc }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setNewHolidayDate(""); setNewHolidayDesc(""); fetchStore();
+        } catch (err) { toast.error("휴일 추가 실패"); }
+    };
+
+    const handleDeleteHoliday = async (id) => {
+        if (!window.confirm("삭제하시겠습니까?")) return;
+        try { await axios.delete(`${API_BASE_URL}/holidays/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchStore(); } 
+        catch (err) { toast.error("삭제 실패"); }
+    };
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-xl mb-4">⏰ 요일별 영업 시간</h3>
+                <div className="space-y-3">
+                    {hours.map((h, idx) => (
+                        <div key={idx} className={`flex items-center gap-2 p-2 rounded ${h.is_closed ? "bg-gray-100 opacity-50" : ""}`}>
+                            <span className="w-8 font-bold text-center">{days[h.day_of_week]}</span>
+                            <input type="time" className="border rounded p-1" value={h.open_time} onChange={e=>handleHourChange(idx, "open_time", e.target.value)} disabled={h.is_closed}/>
+                            <span>~</span>
+                            <input type="time" className="border rounded p-1" value={h.close_time} onChange={e=>handleHourChange(idx, "close_time", e.target.value)} disabled={h.is_closed}/>
+                            <label className="flex items-center gap-1 ml-auto text-sm cursor-pointer">
+                                <input type="checkbox" checked={h.is_closed} onChange={e=>handleHourChange(idx, "is_closed", e.target.checked)}/> 휴무
+                            </label>
+                        </div>
+                    ))}
+                </div>
+                <button onClick={handleSaveHours} className="mt-6 w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">시간표 저장</button>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-xl mb-4">📅 휴일 설정</h3>
+                <div className="flex gap-2 mb-4">
+                    <input type="date" className="border p-2 rounded" value={newHolidayDate} onChange={e=>setNewHolidayDate(e.target.value)} />
+                    <input type="text" className="border p-2 rounded flex-1" placeholder="사유 (예: 설날)" value={newHolidayDesc} onChange={e=>setNewHolidayDesc(e.target.value)} />
+                    <button onClick={handleAddHoliday} className="bg-gray-800 text-white px-4 rounded font-bold">추가</button>
+                </div>
+                <ul className="space-y-2">
+                    {holidays.map(h => (
+                        <li key={h.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border">
+                            <span>{h.date} <span className="text-gray-500 text-sm">({h.description})</span></span>
+                            <button onClick={()=>handleDeleteHoliday(h.id)} className="text-red-500 text-sm hover:underline">삭제</button>
+                        </li>
+                    ))}
+                    {holidays.length === 0 && <li className="text-gray-400 text-center py-4">등록된 휴일이 없습니다.</li>}
+                </ul>
+            </div>
+        </div>
+    );
+}
+
+// 4. 테이블 및 QR 관리
+export function AdminTables({ store, token, fetchStore }) { 
+    const [newTableName, setNewTableName] = useState("");
+    const [editingTableId, setEditingTableId] = useState(null);
+    const [editingName, setEditingName] = useState("");
+    const [zoomQrTable, setZoomQrTable] = useState(null);
+
+    const handleCreateTable = async () => {
+        if (!newTableName) return;
+        try {
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/tables/`, { name: newTableName }, { headers: { Authorization: `Bearer ${token}` } });
+            setNewTableName(""); fetchStore();
+        } catch (err) { toast.error("테이블 생성 실패"); }
+    };
+
+    const handleDeleteTable = async (id) => {
+        if (!window.confirm("정말 삭제하시겠습니까? QR코드도 무효화됩니다.")) return;
+        try { await axios.delete(`${API_BASE_URL}/tables/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchStore(); } 
+        catch (err) { toast.error("삭제 실패"); }
+    };
+
+    const startEdit = (table) => { setEditingTableId(table.id); setEditingName(table.name); };
+
+    const saveEdit = async (tableId) => {
+        try {
+            await axios.patch(`${API_BASE_URL}/tables/${tableId}`, { name: editingName }, { headers: { Authorization: `Bearer ${token}` } });
+            setEditingTableId(null); fetchStore();
+        } catch (err) { toast.error("수정 실패"); }
+    };
+
+    const getQrImageUrl = (token, size = 150) => {
+        const targetUrl = `${window.location.protocol}//${window.location.host}/order/${token}`;
+        return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(targetUrl)}`;
+    };
+
+    const handleDownloadQR = async (table) => {
+        const imageUrl = getQrImageUrl(table.qr_token, 500); 
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const fileName = `${dateStr}_${store.name}_${table.name}.png`;
+
+        try {
+            const response = await fetch(imageUrl);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (err) { console.error(err); toast.error("다운로드 중 오류가 발생했습니다."); }
+    };
+
+    return (
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 pb-20">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">🪑 테이블 & QR 관리</h2>
+                <div className="flex gap-2">
+                    <input className="border p-2 rounded w-40" placeholder="테이블명 (예: 1번)" value={newTableName} onChange={e=>setNewTableName(e.target.value)} />
+                    <button onClick={handleCreateTable} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700">추가</button>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {store.tables?.map(table => (
+                    <div key={table.id} className="border-2 border-gray-200 rounded-xl p-4 flex flex-col items-center hover:border-indigo-300 transition bg-white shadow-sm">
+                        <div className="w-24 h-24 bg-gray-100 mb-3 cursor-zoom-in overflow-hidden rounded-lg border" onClick={() => setZoomQrTable(table)}>
+                            <img src={getQrImageUrl(table.qr_token)} alt="QR Code" className="w-full h-full object-cover hover:scale-110 transition-transform duration-300" />
+                        </div>
+                        {editingTableId === table.id ? (
+                            <div className="flex gap-1 w-full mb-2">
+                                <input className="border p-1 text-xs w-full rounded text-center" value={editingName} onChange={e=>setEditingName(e.target.value)} autoFocus />
+                                <button onClick={()=>saveEdit(table.id)} className="bg-blue-500 text-white px-1 rounded text-xs">V</button>
+                                <button onClick={()=>setEditingTableId(null)} className="bg-gray-300 text-gray-700 px-1 rounded text-xs">X</button>
+                            </div>
+                        ) : (
+                            <h3 className="font-bold text-lg mb-2 flex items-center gap-1 cursor-pointer hover:text-indigo-600" onClick={()=>startEdit(table)}>
+                                {table.name} <span className="text-xs text-gray-400">✏️</span>
+                            </h3>
+                        )}
+                        <div className="flex justify-between w-full mt-auto pt-2 border-t gap-2">
+                            <button onClick={()=>handleDeleteTable(table.id)} className="text-red-400 text-xs hover:text-red-600 hover:underline">삭제</button>
+                            <button onClick={()=>setZoomQrTable(table)} className="text-indigo-500 text-xs hover:text-indigo-700 font-bold">QR 확대</button>
+                        </div>
+                    </div>
+                ))}
+                {store.tables?.length === 0 && <div className="col-span-full text-center py-10 text-gray-400">등록된 테이블이 없습니다.</div>}
+            </div>
+
+            {zoomQrTable && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setZoomQrTable(null)}>
+                    <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-2xl font-extrabold text-gray-800 mb-2">{zoomQrTable.name}</h3>
+                        <p className="text-gray-500 mb-6 text-sm">QR코드를 스캔하여 주문하세요</p>
+                        <div className="p-4 border-4 border-black rounded-xl mb-6 bg-white">
+                            <img src={getQrImageUrl(zoomQrTable.qr_token, 300)} alt="Large QR" className="w-64 h-64" />
+                        </div>
+                        <div className="flex gap-3 w-full">
+                            <button onClick={() => handleDownloadQR(zoomQrTable)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-md flex items-center justify-center gap-2">📥 QR 저장</button>
+                            <button onClick={() => setZoomQrTable(null)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-300">닫기</button>
+                        </div>
+                        <p className="mt-4 text-xs text-gray-400 text-center">파일명: {new Date().toISOString().slice(0,10)}_{store.name}_{zoomQrTable.name}.png</p>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// 5. 매출 관리
+export function AdminSales({ store, token }) {
+    const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+    const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+    const [stats, setStats] = useState(null);
+
+    const fetchStats = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/stores/${store.id}/stats?start_date=${startDate}&end_date=${endDate}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setStats(res.data);
+        } catch (err) { toast.error("매출 데이터 로딩 실패"); }
+    };
+
+    useEffect(() => { fetchStats(); }, [startDate, endDate]);
+
+    return (
+        <div className="space-y-6 pb-20">
+            {/* ... (기존 AdminSales return 안의 UI 내용 그대로 유지) ... */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
+                <h2 className="text-2xl font-bold text-gray-800">💰 매출 통계</h2>
+                <div className="flex items-center gap-2 bg-gray-100 p-2 rounded-lg">
+                    <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-transparent font-bold" />
+                    <span>~</span>
+                    <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-transparent font-bold" />
+                    <button onClick={fetchStats} className="bg-black text-white px-3 py-1 rounded text-sm font-bold ml-2">조회</button>
+                </div>
+            </div>
+
+            {stats ? (
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-indigo-600 text-white p-6 rounded-2xl shadow-lg">
+                            <p className="text-indigo-200 font-bold mb-1">총 매출액</p>
+                            <p className="text-4xl font-black">{stats.total_revenue.toLocaleString()}원</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <p className="text-gray-500 font-bold mb-1">총 주문 건수</p>
+                            <p className="text-4xl font-black text-gray-800">{stats.order_count}건</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-lg mb-4 border-b pb-2">🔥 인기 메뉴 순위</h3>
+                            <ul className="space-y-3">
+                                {stats.menu_stats.map((m, idx) => (
+                                    <li key={idx} className="flex justify-between items-center">
+                                        <div className="flex items-center gap-3">
+                                            <span className="w-6 h-6 bg-gray-100 rounded text-center text-sm font-bold text-gray-600">{idx+1}</span>
+                                            <span className="font-bold text-gray-700">{m.name}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="block font-bold text-indigo-600">{m.revenue.toLocaleString()}원</span>
+                                            <span className="text-xs text-gray-400">{m.count}개 판매</span>
+                                        </div>
+                                    </li>
+                                ))}
+                                {stats.menu_stats.length === 0 && <p className="text-center text-gray-400 py-10">데이터 없음</p>}
+                            </ul>
+                        </div>
+
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-lg mb-4 border-b pb-2">⏰ 시간대별 매출</h3>
+                            <div className="space-y-2">
+                                {stats.hourly_stats.map((h, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 text-sm">
+                                        <span className="w-12 font-bold text-gray-500">{h.hour}시</span>
+                                        <div className="flex-1 h-4 bg-gray-100 rounded overflow-hidden">
+                                            <div className="h-full bg-indigo-400" style={{ width: `${(h.sales / stats.total_revenue) * 100}%` }}></div>
+                                        </div>
+                                        <span className="w-20 text-right font-bold">{h.sales.toLocaleString()}원</span>
+                                    </div>
+                                ))}
+                                {stats.hourly_stats.length === 0 && <p className="text-center text-gray-400 py-10">데이터 없음</p>}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            ) : (
+                <div className="text-center py-20 text-gray-400">데이터를 불러오는 중...</div>
+            )}
+        </div>
+    );
+}
+
+// 6. 점주용 계정 관리
+export function AdminUsers({ store, token }) {
+    const [users, setUsers] = useState([]);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [newUserEmail, setNewUserEmail] = useState("");
+    const [newUserPassword, setNewUserPassword] = useState("");
+    const [newUserName, setNewUserName] = useState("");
+    const [newUserRole, setNewUserRole] = useState("STAFF");
+
+    useEffect(() => { fetchUsers(); }, []);
+
+    const fetchUsers = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/users/`, { headers: { Authorization: `Bearer ${token}` } });
+            setUsers(res.data);
+        } catch (err) { toast.error("목록 로딩 실패"); }
+    };
+
+    const handleCreateUser = async () => {
+        if(!newUserEmail || !newUserPassword) return toast.error("이메일, 비밀번호 필수");
+        try {
+            await axios.post(`${API_BASE_URL}/admin/users/`, 
+                { email: newUserEmail, password: newUserPassword, name: newUserName, role: newUserRole, store_id: store.id },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("생성 완료"); setNewUserEmail(""); setNewUserPassword(""); setNewUserName(""); setIsModalOpen(false); fetchUsers();
+        } catch(err) { toast.error(err.response?.data?.detail || "실패"); }
+    };
+
+    const handleDeleteUser = async (userId) => {
+        if(!window.confirm("삭제하시겠습니까?")) return;
+        try { await axios.delete(`${API_BASE_URL}/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } }); fetchUsers(); } catch(err) { toast.error("삭제 실패"); }
+    };
+
+    return (
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+            {/* ... (기존 AdminUsers return 안의 UI 내용 그대로 유지) ... */}
+            <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-gray-800">👤 계정 관리</h2><button onClick={()=>setIsModalOpen(true)} className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-black">+ 계정 추가</button></div>
+            <table className="w-full text-left border-collapse">
+                <thead><tr className="border-b bg-gray-50 text-gray-500 text-sm"><th className="p-3">이름</th><th className="p-3">이메일</th><th className="p-3">권한</th><th className="p-3">상태</th><th className="p-3 text-right">관리</th></tr></thead>
+                <tbody>{users.map(u => (<tr key={u.id} className="border-b hover:bg-gray-50"><td className="p-3 font-bold">{u.name || "-"}</td><td className="p-3 text-gray-600">{u.email}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role==='SUPER_ADMIN'?'bg-red-100 text-red-700':u.role==='STORE_OWNER'?'bg-blue-100 text-blue-700':'bg-gray-100 text-gray-700'}`}>{u.role}</span></td><td className="p-3 text-sm">{u.is_active ? "🟢 활성" : "🔴 정지"}</td><td className="p-3 text-right"><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 hover:underline text-sm">삭제</button></td></tr>))}</tbody>
+            </table>
+            {isModalOpen && (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-96 shadow-2xl"><h3 className="text-xl font-bold mb-4">새 계정</h3><div className="space-y-3"><input className="border w-full p-2 rounded" placeholder="이름" value={newUserName} onChange={e=>setNewUserName(e.target.value)} /><input className="border w-full p-2 rounded" placeholder="이메일" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} /><input className="border w-full p-2 rounded" type="password" placeholder="비밀번호" value={newUserPassword} onChange={e=>setNewUserPassword(e.target.value)} /><select className="border w-full p-2 rounded" value={newUserRole} onChange={e=>setNewUserRole(e.target.value)}><option value="STAFF">직원 (STAFF)</option><option value="STORE_OWNER">점주 (STORE_OWNER)</option></select></div><div className="flex gap-2 mt-6"><button onClick={handleCreateUser} className="flex-1 bg-indigo-600 text-white py-2 rounded font-bold">생성</button><button onClick={()=>setIsModalOpen(false)} className="flex-1 bg-gray-200 py-2 rounded font-bold">취소</button></div></div></div>)}
+        </div>
+    );
+}
