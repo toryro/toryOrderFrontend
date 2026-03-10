@@ -66,15 +66,20 @@ function HeadquartersView({ user, token }) {
                     <p className="text-xs text-slate-400 mt-1">{user.role === "SUPER_ADMIN" ? "슈퍼 관리자" : "브랜드 본사"}</p>
                     <p className="text-xs text-indigo-400 font-bold">{user.name}님</p>
                 </div>
-                {/* ✨ 간격을 줄이고(space-y-1) 스크롤을 추가(overflow-y-auto)합니다 */}
+                
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
                     <div className="text-xs font-bold text-slate-500 mb-2 px-2 mt-2">현황 파악</div>
                     <HQMenuButton icon="🏪" label="가맹점 목록" active={activeTab==="stores"} onClick={()=>setActiveTab("stores")} />
-                    {/* ✨ 새로 추가된 통합 매출 버튼 */}
                     <HQMenuButton icon="📈" label="통합 매출 현황" active={activeTab==="hq_sales"} onClick={()=>setActiveTab("hq_sales")} />
                     
                     {/* 공통 기능 (슈퍼 + 브랜드) */}
                     <div className="text-xs font-bold text-slate-500 mb-2 px-2 mt-6">운영 관리</div>
+                    
+                    {/* ✨ [신규 추가] 여기에 공지사항 발송 버튼이 들어갑니다! */}
+                    <HQMenuButton icon="📢" label="공지사항 발송" active={activeTab==="notice"} onClick={()=>setActiveTab("notice")} />
+                    {/* ✨ [추가] 발송 내역 게시판 버튼 */}
+                    <HQMenuButton icon="📋" label="공지 발송 내역" active={activeTab==="notice_history"} onClick={()=>setActiveTab("notice_history")} />
+                    
                     <HQMenuButton icon="➕" label="가맹점 생성" active={activeTab==="create_store"} onClick={()=>setActiveTab("create_store")} />
                     <HQMenuButton icon="🚀" label="메뉴 일괄 배포" active={activeTab==="distribution"} onClick={()=>setActiveTab("distribution")} />
                     <HQMenuButton icon="👥" label={user.role==="SUPER_ADMIN"?"전체 계정 관리":"점주 계정 관리"} active={activeTab==="users"} onClick={()=>setActiveTab("users")} />
@@ -135,6 +140,11 @@ function HeadquartersView({ user, token }) {
                     {activeTab === "distribution" && <AdminMenuDistribution stores={stores} token={token} />}
                     {activeTab === "create_store" && <HQStoreCreate token={token} onSuccess={()=>setActiveTab("stores")} />}
                     {activeTab === "users" && <HQUserManage token={token} currentUser={user} />}
+                    
+                    {/* ✨ [신규 추가] 공지사항 발송 컴포넌트 연결! */}
+                    {activeTab === "notice" && <HQNoticeSend token={token} currentUser={user} />}
+                    {/* ✨ [추가] 게시판 화면 연결! */}
+                    {activeTab === "notice_history" && <HQNoticeHistory token={token} currentUser={user} />}
                 </div>
             </div>
         </div>
@@ -637,6 +647,197 @@ function HQSalesDashboard({ token, currentUser }) {
     );
 }
 
+// 2-6. 타겟팅 공지사항 발송 컴포넌트
+function HQNoticeSend({ token, currentUser }) {
+    const [title, setTitle] = useState("");
+    const [content, setContent] = useState("");
+    const [targetType, setTargetType] = useState(currentUser.role === "SUPER_ADMIN" ? "ALL" : "BRAND");
+    const [targetBrandId, setTargetBrandId] = useState("");
+    const [targetStoreId, setTargetStoreId] = useState("");
+    
+    const [brands, setBrands] = useState([]);
+    const [stores, setStores] = useState([]);
+
+    useEffect(() => {
+        axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setBrands(res.data)).catch(()=>{});
+        axios.get(`${API_BASE_URL}/groups/my/stores`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setStores(res.data)).catch(()=>{});
+    }, []);
+
+    const handleSend = async () => {
+        if(!title || !content) return toast.error("제목과 내용을 입력해주세요.");
+        if(targetType === "BRAND" && !targetBrandId && currentUser.role === "SUPER_ADMIN") return toast.error("브랜드를 선택해주세요.");
+        if(targetType === "STORE" && !targetStoreId) return toast.error("매장을 선택해주세요.");
+
+        let finalBrandId = targetType === "BRAND" ? (currentUser.role === "SUPER_ADMIN" ? targetBrandId : currentUser.brand_id) : null;
+        let finalStoreId = targetType === "STORE" ? targetStoreId : null;
+
+        if(!window.confirm("공지를 발송하시겠습니까? 로그인하지 않은 대상도 다음 접속 시 확인하게 됩니다.")) return;
+        try {
+            await axios.post(`${API_BASE_URL}/admin/notices`, 
+                { title, content, target_type: targetType, target_brand_id: finalBrandId ? parseInt(finalBrandId) : null, target_store_id: finalStoreId ? parseInt(finalStoreId) : null }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("타겟팅 공지 발송 완료!");
+            setTitle(""); setContent("");
+        } catch(e) { toast.error("발송 실패"); }
+    };
+
+    return (
+        <div className="max-w-3xl mx-auto space-y-6 animate-fadeIn pb-20">
+            <h2 className="text-2xl font-bold text-gray-800">📢 공지사항 발송</h2>
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 space-y-6">
+                
+                {/* 타겟 설정 영역 */}
+                <div className="bg-indigo-50 p-5 rounded-xl border border-indigo-100">
+                    <label className="block text-sm font-bold text-indigo-900 mb-3">누구에게 발송할까요? 🎯</label>
+                    <div className="flex gap-4 mb-4">
+                        {currentUser.role === "SUPER_ADMIN" && <label className="flex items-center gap-2 font-bold cursor-pointer"><input type="radio" name="target" checked={targetType==="ALL"} onChange={()=>setTargetType("ALL")} />플랫폼 전체</label>}
+                        <label className="flex items-center gap-2 font-bold cursor-pointer"><input type="radio" name="target" checked={targetType==="BRAND"} onChange={()=>setTargetType("BRAND")} />{currentUser.role==="SUPER_ADMIN"?"특정 브랜드":"우리 브랜드 전체"}</label>
+                        <label className="flex items-center gap-2 font-bold cursor-pointer"><input type="radio" name="target" checked={targetType==="STORE"} onChange={()=>setTargetType("STORE")} />특정 매장</label>
+                    </div>
+
+                    {targetType === "BRAND" && currentUser.role === "SUPER_ADMIN" && (
+                        <select className="w-full border p-3 rounded-lg" value={targetBrandId} onChange={e=>setTargetBrandId(e.target.value)}><option value="">브랜드 선택</option>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
+                    )}
+                    {targetType === "STORE" && (
+                        <select className="w-full border p-3 rounded-lg" value={targetStoreId} onChange={e=>setTargetStoreId(e.target.value)}><option value="">매장 선택</option>{stores.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                    )}
+                </div>
+
+                {/* 내용 입력 영역 */}
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">제목</label><input className="w-full border-2 p-3 rounded-lg font-bold outline-none" value={title} onChange={e=>setTitle(e.target.value)} /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">내용</label><textarea className="w-full border-2 p-3 rounded-lg h-40 resize-none outline-none" value={content} onChange={e=>setContent(e.target.value)} /></div>
+                
+                <button onClick={handleSend} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold text-lg hover:bg-black shadow-md transition">🚀 공지 발송하기</button>
+            </div>
+        </div>
+    );
+}
+
+// 2-7. 공지사항 발송 내역 (게시판 형태)
+function HQNoticeHistory({ token, currentUser }) {
+    const [notices, setNotices] = useState([]);
+    const [selectedNotice, setSelectedNotice] = useState(null);
+    
+    // ✨ [추가] ID를 이름으로 바꾸기 위해 브랜드와 매장 목록을 담을 공간
+    const [brands, setBrands] = useState([]);
+    const [stores, setStores] = useState([]);
+
+    useEffect(() => {
+        fetchNotices();
+        // ✨ [추가] 화면이 열릴 때 브랜드와 매장 목록도 함께 불러옵니다.
+        axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setBrands(res.data)).catch(()=>{});
+        axios.get(`${API_BASE_URL}/groups/my/stores`, { headers: { Authorization: `Bearer ${token}` } }).then(res=>setStores(res.data)).catch(()=>{});
+    }, []);
+
+    const fetchNotices = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/admin/notices/history`, { headers: { Authorization: `Bearer ${token}` } });
+            setNotices(res.data);
+        } catch (e) { toast.error("내역을 불러오지 못했습니다."); }
+    };
+
+    // ✨ [핵심 수정] 타겟(대상)을 한글 이름으로 똑똑하게 변환해 주는 함수
+    const formatTarget = (n) => {
+        if (n.target_type === "ALL") {
+            return <span className="bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-xs font-black whitespace-nowrap shadow-sm">전체 공지</span>;
+        }
+        
+        if (n.target_type === "BRAND") {
+            const targetBrand = brands.find(b => b.id === n.target_brand_id);
+            const brandName = targetBrand ? targetBrand.name : `알수없음`;
+            return <span className="bg-purple-100 text-purple-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-sm">🏢 {brandName} (전체)</span>;
+        }
+        
+        if (n.target_type === "STORE") {
+            const targetStore = stores.find(s => s.id === n.target_store_id);
+            if (targetStore) {
+                // 이 매장이 속한 브랜드를 찾거나, 없으면 '단독 매장'으로 표시
+                const parentBrand = brands.find(b => b.id === targetStore.brand_id);
+                const prefix = parentBrand ? parentBrand.name : "독립/단독";
+                return <span className="bg-blue-100 text-blue-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-sm">🏪 [{prefix}] {targetStore.name}</span>;
+            }
+            return <span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-sm">삭제된 매장</span>;
+        }
+        return "-";
+    };
+
+    return (
+        <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn pb-20">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">📋 공지사항 발송 내역</h2>
+                <button onClick={fetchNotices} className="bg-white border border-gray-300 text-gray-600 px-4 py-2 rounded-lg font-bold hover:bg-gray-50 transition text-sm flex items-center gap-2 shadow-sm">
+                    🔄 새로고침
+                </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[600px]">
+                    <thead>
+                        <tr className="bg-slate-800 text-white text-sm">
+                            <th className="p-4 font-bold w-16 text-center">No</th>
+                            {/* 글씨가 잘리지 않도록 넓이를 넉넉하게 잡았습니다 */}
+                            <th className="p-4 font-bold text-center">발송 대상</th>
+                            <th className="p-4 font-bold w-1/2">공지 제목</th>
+                            <th className="p-4 font-bold w-40 text-center">발송 일시</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {notices.map((n, idx) => (
+                            <tr key={n.id} onClick={() => setSelectedNotice(n)} className="border-b border-gray-100 hover:bg-indigo-50/50 cursor-pointer transition group">
+                                <td className="p-4 text-center text-gray-400 font-bold">{notices.length - idx}</td>
+                                <td className="p-4 text-center">{formatTarget(n)}</td>
+                                <td className="p-4 font-bold text-gray-800 group-hover:text-indigo-600 transition truncate">{n.title}</td>
+                                <td className="p-4 text-center text-xs text-gray-500 font-medium whitespace-nowrap">
+                                    {new Date(n.created_at).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                            </tr>
+                        ))}
+                        {notices.length === 0 && (
+                            <tr>
+                                <td colSpan="4" className="p-10 text-center text-gray-400 font-bold bg-gray-50">발송된 공지사항 내역이 없습니다.</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* 상세 내용 확인 팝업 모달 */}
+            {selectedNotice && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" onClick={() => setSelectedNotice(null)}>
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b bg-slate-800 text-white flex justify-between items-center">
+                            <h3 className="font-bold flex items-center gap-2">📄 발송 공지 상세</h3>
+                            <button onClick={() => setSelectedNotice(null)} className="text-gray-400 hover:text-white text-xl transition">×</button>
+                        </div>
+                        <div className="p-6 space-y-5">
+                            {/* 팝업 안에서도 누구한테 보낸 건지 다시 명확하게 보여줍니다! */}
+                            <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 flex items-center gap-3">
+                                <span className="text-xs font-bold text-gray-500 shrink-0">발송 대상</span>
+                                <div>{formatTarget(selectedNotice)}</div>
+                            </div>
+                            
+                            <div>
+                                <span className="text-xs font-bold text-gray-400 mb-1 block">제목</span>
+                                <h4 className="font-extrabold text-lg text-gray-900">{selectedNotice.title}</h4>
+                            </div>
+                            <div>
+                                <span className="text-xs font-bold text-gray-400 mb-1 block">발송 내용</span>
+                                <p className="text-gray-700 whitespace-pre-wrap bg-white p-4 rounded-xl border border-gray-200 text-sm leading-relaxed shadow-inner h-48 overflow-y-auto">
+                                    {selectedNotice.content}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="p-4 bg-gray-50 border-t flex justify-end">
+                            <button onClick={() => setSelectedNotice(null)} className="bg-gray-800 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-black transition shadow-sm">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ==========================================
 // 3. [점주/본사용] 영업장 정보 관리 컴포넌트
 // ==========================================
@@ -776,6 +977,112 @@ function AdminStoreInfo({ store, token, fetchStore, user }) {
             </div>
             
             <button onClick={handleSave} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 shadow-md">저장하기</button>
+        </div>
+    );
+}
+
+// 3-1. [점주/직원용] 본사 공지사항 수신함 컴포넌트
+function StoreNoticeBoard({ token }) {
+    const [notices, setNotices] = useState([]);
+    const [selectedNotice, setSelectedNotice] = useState(null);
+
+    useEffect(() => {
+        fetchNotices();
+    }, []);
+
+    const fetchNotices = async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/notices/my`, { headers: { Authorization: `Bearer ${token}` } });
+            setNotices(res.data);
+        } catch (e) { toast.error("공지사항 목록을 불러오지 못했습니다."); }
+    };
+
+    // ✨ 공지사항 "확인(읽음)" 처리 함수
+    const handleReadNotice = async (noticeId) => {
+        try {
+            await axios.post(`${API_BASE_URL}/notices/${noticeId}/read`, {}, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("공지를 확인했습니다.");
+            setSelectedNotice(null);
+            fetchNotices(); // 목록 새로고침해서 뱃지(안읽음->읽음) 업데이트
+        } catch(e) { toast.error("처리 중 오류가 발생했습니다."); }
+    };
+
+    return (
+        <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn pb-20">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">📢 본사 공지사항 수신함</h2>
+                <button onClick={fetchNotices} className="bg-white border border-gray-300 text-gray-600 px-4 py-2 rounded-lg font-bold hover:bg-gray-50 transition text-sm flex items-center gap-2 shadow-sm">
+                    🔄 새로고침
+                </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <table className="w-full text-left border-collapse min-w-[500px]">
+                    <thead>
+                        <tr className="bg-indigo-50/50 text-indigo-900 text-sm border-b border-indigo-100">
+                            <th className="p-4 font-bold w-24 text-center">상태</th>
+                            <th className="p-4 font-bold w-1/2">제목</th>
+                            <th className="p-4 font-bold text-center">수신 일시</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {notices.map((n) => (
+                            <tr key={n.id} onClick={() => setSelectedNotice(n)} className={`border-b border-gray-100 cursor-pointer transition group ${n.is_read ? 'bg-white hover:bg-gray-50' : 'bg-red-50/30 hover:bg-red-50'}`}>
+                                <td className="p-4 text-center">
+                                    {/* ✨ 안읽음 / 읽음 상태 명확히 표시 */}
+                                    {n.is_read 
+                                        ? <span className="bg-gray-100 text-gray-500 px-2 py-1 rounded text-[11px] font-bold">읽음</span>
+                                        : <span className="bg-red-500 text-white px-2 py-1 rounded text-[11px] font-bold shadow-sm animate-pulse">🔴 안읽음</span>
+                                    }
+                                </td>
+                                <td className={`p-4 font-bold transition truncate ${n.is_read ? 'text-gray-600' : 'text-gray-900 group-hover:text-red-600'}`}>
+                                    {n.title}
+                                </td>
+                                <td className="p-4 text-center text-xs text-gray-500 font-medium">
+                                    {new Date(n.created_at).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                            </tr>
+                        ))}
+                        {notices.length === 0 && (
+                            <tr>
+                                <td colSpan="3" className="p-10 text-center text-gray-400 font-bold bg-gray-50">수신된 공지사항이 없습니다.</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* ✨ 공지사항 상세 읽기 모달 */}
+            {selectedNotice && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" onClick={() => setSelectedNotice(null)}>
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className={`${selectedNotice.is_read ? 'bg-slate-800' : 'bg-red-600'} p-5 text-white flex justify-between items-center`}>
+                            <h3 className="font-bold flex items-center gap-2">
+                                {selectedNotice.is_read ? '📄 공지사항 확인' : '🚨 새로운 공지사항'}
+                            </h3>
+                            <button onClick={() => setSelectedNotice(null)} className="text-white/70 hover:text-white text-xl transition">×</button>
+                        </div>
+                        <div className="p-8 space-y-4">
+                            <h4 className="font-extrabold text-2xl text-gray-900 mb-2">{selectedNotice.title}</h4>
+                            <p className="text-gray-700 whitespace-pre-wrap bg-gray-50 p-5 rounded-xl border border-gray-100 text-[15px] leading-relaxed h-48 overflow-y-auto">
+                                {selectedNotice.content}
+                            </p>
+                        </div>
+                        <div className="p-4 bg-gray-50 border-t flex gap-2">
+                            {/* ✨ 안 읽은 공지면 '확인했습니다' 버튼, 읽은 공지면 단순 '닫기' 버튼 노출 */}
+                            {!selectedNotice.is_read ? (
+                                <button onClick={() => handleReadNotice(selectedNotice.id)} className="w-full bg-red-600 text-white px-6 py-4 rounded-xl font-bold text-lg hover:bg-red-700 transition shadow-md active:scale-95">
+                                    ✅ 확인했습니다 (읽음 처리)
+                                </button>
+                            ) : (
+                                <button onClick={() => setSelectedNotice(null)} className="w-full bg-gray-300 text-gray-800 px-6 py-3 rounded-xl font-bold hover:bg-gray-400 transition">
+                                    닫기
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -1716,6 +2023,9 @@ function AdminPage() {
     const [store, setStore] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("info");
+    
+    // ✨ 수신된 안읽은 공지사항 목록 배열
+    const [unreadNotices, setUnreadNotices] = useState([]);
 
     useEffect(() => {
         if (!token) { navigate("/"); return; }
@@ -1726,6 +2036,27 @@ function AdminPage() {
             })
             .catch(() => { navigate("/"); });
     }, [token, storeId]);
+
+    // ✨ [신규 추가] 로그인(화면 진입) 시 안읽은 공지 가져오기
+    useEffect(() => {
+        if (user && ["STORE_OWNER", "STAFF"].includes(user.role)) {
+            axios.get(`${API_BASE_URL}/notices/unread`, { headers: { Authorization: `Bearer ${token}` } })
+                .then(res => setUnreadNotices(res.data))
+                .catch(()=>{});
+        }
+    }, [user, token]);
+
+    // ✨ [신규 추가] 공지사항 "확인(읽음)" 처리 함수
+    const handleReadNotice = async (noticeId) => {
+        try {
+            // 1. 서버에 "나 이거 읽었음!" 보고
+            await axios.post(`${API_BASE_URL}/notices/${noticeId}/read`, {}, { headers: { Authorization: `Bearer ${token}` } });
+            // 2. 화면에 떠있는 배열에서 맨 앞의 1개 삭제 (그 다음 공지가 있으면 자동으로 올라옴)
+            setUnreadNotices(prev => prev.slice(1));
+        } catch(e) {
+            toast.error("공지사항 확인 처리 중 오류가 발생했습니다.");
+        }
+    };
 
     const fetchStore = async () => {
         if (storeId && ["SUPER_ADMIN", "GROUP_ADMIN", "STORE_OWNER", "BRAND_ADMIN"].includes(user?.role)) {
@@ -1792,6 +2123,8 @@ function AdminPage() {
                     {["GROUP_ADMIN", "SUPER_ADMIN", "BRAND_ADMIN"].includes(user.role) && (<button onClick={() => navigate("/admin")} className="text-xs text-indigo-600 font-bold mt-4 hover:underline block w-full text-left">← 본사 대시보드</button>)}
                 </div>
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+                    {/* ✨ [신규 추가] 점주용 본사 공지사항 게시판 버튼 */}
+                    <MenuButton icon="📢" label="공지 사항" active={activeTab==="store_notices"} onClick={()=>setActiveTab("store_notices")} />
                     <MenuButton icon="🏠" label="영업장 정보" active={activeTab==="info"} onClick={()=>setActiveTab("info")} />
                     <MenuButton icon="🍽️" label="메뉴 관리" active={activeTab==="menu"} onClick={()=>setActiveTab("menu")} />
                     <MenuButton icon="🔔" label="호출 옵션" active={activeTab==="callOptions"} onClick={()=>setActiveTab("callOptions")} />
@@ -1801,7 +2134,6 @@ function AdminPage() {
                     <MenuButton icon="👤" label="계정 관리" active={activeTab==="users"} onClick={()=>setActiveTab("users")} />
                     
                     <div className="pt-3 mt-3 border-t border-gray-100">
-                        {/* ✨ 주방 KDS 버튼의 높이도 살짝 줄였습니다 (py-3 -> py-2.5, text-sm) */}
                         <a href={`/kitchen/${store.id}`} target="_blank" rel="noopener noreferrer" className="w-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 text-sm">
                             <span>🍳</span> 주방 KDS 화면 열기
                         </a>
@@ -1813,8 +2145,11 @@ function AdminPage() {
                     </button>
                 </div>
             </div>
+            
             {/* 메인 컨텐츠 영역 */}
-            <div className="flex-1 ml-64 p-4 lg:p-6 overflow-y-auto">
+            <div className="flex-1 ml-64 p-4 lg:p-6 overflow-y-auto relative">
+                {/* ✨ [신규 추가] 점주용 공지사항 게시판 렌더링 */}
+                {activeTab === "store_notices" && <StoreNoticeBoard token={token} />}
                 {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} user={user} />}
                 {activeTab === "menu" && <AdminMenuManagement store={store} token={token} fetchStore={fetchStore} user={user} />}
                 {activeTab === "callOptions" && <AdminCallOptionManagement store={store} token={token} />}
@@ -1822,7 +2157,38 @@ function AdminPage() {
                 {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
                 {activeTab === "sales" && <AdminSales store={store} token={token} />}
                 {activeTab === "users" && <AdminUsers store={store} token={token} />}
+                {activeTab === "notice" && <HQNoticeSend token={token} currentUser={user} />}
             </div>
+
+            {/* ✨ [신규 추가] 스마트 공지사항 팝업 모달 */}
+            {unreadNotices.length > 0 && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden transform animate-slideUp relative">
+                        {/* 남은 공지 개수 표시 뱃지 */}
+                        {unreadNotices.length > 1 && (
+                            <div className="absolute top-4 right-4 bg-yellow-400 text-yellow-900 font-bold text-xs px-3 py-1 rounded-full z-10 shadow-sm animate-pulse">
+                                안 읽은 공지 {unreadNotices.length}개 남음
+                            </div>
+                        )}
+                        
+                        <div className="bg-indigo-600 p-5 text-white text-center relative overflow-hidden">
+                            <span className="text-4xl mb-1 block">📢</span>
+                            <h2 className="text-xl font-black">새로운 공지사항 도착</h2>
+                        </div>
+                        <div className="p-8">
+                            <h3 className="text-2xl font-extrabold text-gray-900 mb-4">{unreadNotices[0].title}</h3>
+                            <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-[15px] bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                {unreadNotices[0].content}
+                            </p>
+                        </div>
+                        <div className="p-4 bg-gray-50">
+                            <button onClick={() => handleReadNotice(unreadNotices[0].id)} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold text-lg hover:bg-black transition shadow-md">
+                                ✅ 확인했습니다
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
