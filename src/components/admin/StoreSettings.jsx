@@ -578,11 +578,17 @@ export function AdminTables({ store, token, fetchStore }) {
     );
 }
 
-// 5. 매출 관리
+// 5. 상세 매출 리포트 관리 (일별/월별/시간대별/메뉴별/객단가 분석)
 export function AdminSales({ store, token }) {
-    const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+    // 기본 검색 기간을 '최근 7일'로 자동 셋팅합니다.
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().slice(0, 10);
+    });
     const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
     const [stats, setStats] = useState(null);
+    const [activeTab, setActiveTab] = useState("daily"); // daily, monthly, hourly, menu
 
     const fetchStats = async () => {
         try {
@@ -590,76 +596,168 @@ export function AdminSales({ store, token }) {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setStats(res.data);
-        } catch (err) { toast.error("매출 데이터 로딩 실패"); }
+        } catch (err) { toast.error("매출 데이터를 불러오는데 실패했습니다."); }
     };
 
     useEffect(() => { fetchStats(); }, [startDate, endDate]);
 
     return (
-        <div className="space-y-6 pb-20">
-            {/* ... (기존 AdminSales return 안의 UI 내용 그대로 유지) ... */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-2xl font-bold text-gray-800">💰 매출 통계</h2>
-                <div className="flex items-center gap-2 bg-gray-100 p-2 rounded-lg">
-                    <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-transparent font-bold" />
-                    <span>~</span>
-                    <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-transparent font-bold" />
-                    <button onClick={fetchStats} className="bg-black text-white px-3 py-1 rounded text-sm font-bold ml-2">조회</button>
+        <div className="space-y-6 pb-20 animate-fadeIn">
+            {/* 1. 검색 바 */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
+                <h2 className="text-2xl font-bold text-gray-800">💰 상세 매출 리포트</h2>
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded-xl">
+                    <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200" />
+                    <span className="text-gray-400 font-bold">~</span>
+                    <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200" />
+                    <button onClick={fetchStats} className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-sm font-bold ml-2 hover:bg-black transition shadow-sm">조회</button>
                 </div>
             </div>
 
             {stats ? (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-indigo-600 text-white p-6 rounded-2xl shadow-lg">
-                            <p className="text-indigo-200 font-bold mb-1">총 매출액</p>
-                            <p className="text-4xl font-black">{stats.total_revenue.toLocaleString()}원</p>
+                    {/* 2. 핵심 지표 요약 (객단가 포함) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-2xl shadow-md relative overflow-hidden">
+                            <p className="text-indigo-200 font-bold mb-1 text-sm">해당 기간 총 매출액</p>
+                            <p className="text-3xl font-black">{stats.total_revenue.toLocaleString()}원</p>
+                            <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-10">💵</span>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <p className="text-gray-500 font-bold mb-1">총 주문 건수</p>
-                            <p className="text-4xl font-black text-gray-800">{stats.order_count}건</p>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
+                            <p className="text-gray-500 font-bold mb-1 text-sm">해당 기간 총 주문건수</p>
+                            <p className="text-3xl font-black text-gray-800">{stats.order_count}건</p>
+                            <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.03]">🧾</span>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
+                            <p className="text-gray-500 font-bold mb-1 text-sm flex items-center gap-1">
+                                1건당 평균 결제액 (객단가) 
+                                <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-md">중요</span>
+                            </p>
+                            <p className="text-3xl font-black text-indigo-600">{stats.average_order_value.toLocaleString()}원</p>
+                            <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.03]">👥</span>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-lg mb-4 border-b pb-2">🔥 인기 메뉴 순위</h3>
-                            <ul className="space-y-3">
-                                {stats.menu_stats.map((m, idx) => (
-                                    <li key={idx} className="flex justify-between items-center">
-                                        <div className="flex items-center gap-3">
-                                            <span className="w-6 h-6 bg-gray-100 rounded text-center text-sm font-bold text-gray-600">{idx+1}</span>
-                                            <span className="font-bold text-gray-700">{m.name}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <span className="block font-bold text-indigo-600">{m.revenue.toLocaleString()}원</span>
-                                            <span className="text-xs text-gray-400">{m.count}개 판매</span>
-                                        </div>
-                                    </li>
-                                ))}
-                                {stats.menu_stats.length === 0 && <p className="text-center text-gray-400 py-10">데이터 없음</p>}
-                            </ul>
+                    {/* 3. 상세 분석 탭 (Tab) 영역 */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto scrollbar-hide">
+                            <button onClick={()=>setActiveTab("daily")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="daily" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>📅 일별 매출</button>
+                            <button onClick={()=>setActiveTab("monthly")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="monthly" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>🗓️ 월별 매출</button>
+                            <button onClick={()=>setActiveTab("hourly")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="hourly" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>⏰ 시간대별</button>
+                            <button onClick={()=>setActiveTab("menu")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="menu" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>🍔 메뉴별 분석</button>
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-lg mb-4 border-b pb-2">⏰ 시간대별 매출</h3>
-                            <div className="space-y-2">
-                                {stats.hourly_stats.map((h, idx) => (
-                                    <div key={idx} className="flex items-center gap-2 text-sm">
-                                        <span className="w-12 font-bold text-gray-500">{h.hour}시</span>
-                                        <div className="flex-1 h-4 bg-gray-100 rounded overflow-hidden">
-                                            <div className="h-full bg-indigo-400" style={{ width: `${(h.sales / stats.total_revenue) * 100}%` }}></div>
-                                        </div>
-                                        <span className="w-20 text-right font-bold">{h.sales.toLocaleString()}원</span>
+                        <div className="p-6 min-h-[400px]">
+                            {/* --- 📅 일별 매출 탭 --- */}
+                            {activeTab === "daily" && (
+                                <div className="animate-fadeIn">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="border-b-2 border-gray-200 text-gray-500 text-sm">
+                                                <th className="pb-3 font-bold w-1/3">날짜</th>
+                                                <th className="pb-3 font-bold text-right w-1/3">결제 건수</th>
+                                                <th className="pb-3 font-bold text-right w-1/3">매출액</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {stats.daily_stats.map((d, i) => (
+                                                <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
+                                                    <td className="py-4 font-bold text-gray-800">{d.date}</td>
+                                                    <td className="py-4 text-right text-gray-600 font-medium">{d.count}건</td>
+                                                    <td className="py-4 text-right font-black text-indigo-600">{d.sales.toLocaleString()}원</td>
+                                                </tr>
+                                            ))}
+                                            {stats.daily_stats.length === 0 && <tr><td colSpan="3" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {/* --- 🗓️ 월별 매출 탭 --- */}
+                            {activeTab === "monthly" && (
+                                <div className="animate-fadeIn">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="border-b-2 border-gray-200 text-gray-500 text-sm">
+                                                <th className="pb-3 font-bold w-1/3">월 (Month)</th>
+                                                <th className="pb-3 font-bold text-right w-1/3">결제 건수</th>
+                                                <th className="pb-3 font-bold text-right w-1/3">매출액</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {stats.monthly_stats.map((m, i) => (
+                                                <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
+                                                    <td className="py-4 font-bold text-gray-800">{m.month}</td>
+                                                    <td className="py-4 text-right text-gray-600 font-medium">{m.count}건</td>
+                                                    <td className="py-4 text-right font-black text-indigo-600">{m.sales.toLocaleString()}원</td>
+                                                </tr>
+                                            ))}
+                                            {stats.monthly_stats.length === 0 && <tr><td colSpan="3" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {/* --- ⏰ 시간대별 매출 탭 --- */}
+                            {activeTab === "hourly" && (
+                                <div className="animate-fadeIn space-y-3 pr-2 max-h-[500px] overflow-y-auto">
+                                    <div className="flex justify-end mb-2">
+                                        <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">※ 피크타임(인력 배치) 확인용</span>
                                     </div>
-                                ))}
-                                {stats.hourly_stats.length === 0 && <p className="text-center text-gray-400 py-10">데이터 없음</p>}
-                            </div>
+                                    {stats.hourly_stats.map((h, idx) => {
+                                        // 해당 기간 동안 매출이 발생한 가장 높은 시간대의 금액을 100%로 잡습니다.
+                                        const maxSales = Math.max(...stats.hourly_stats.map(s => s.sales)) || 1;
+                                        const percent = (h.sales / maxSales) * 100;
+                                        const isPeak = percent > 80; // 상위 80% 이상은 피크타임으로 표시
+
+                                        return (
+                                            <div key={idx} className="flex items-center gap-3 text-sm group">
+                                                <span className="w-12 font-bold text-gray-500 text-right">{h.hour}시</span>
+                                                <div className="flex-1 h-6 bg-gray-100 rounded-md overflow-hidden relative">
+                                                    <div className={`h-full transition-all duration-1000 ease-out ${isPeak ? 'bg-red-400' : 'bg-indigo-400'}`} style={{ width: `${percent}%` }}></div>
+                                                </div>
+                                                <span className={`w-24 text-right font-bold ${isPeak ? 'text-red-600' : 'text-gray-700'}`}>
+                                                    {h.sales.toLocaleString()}원
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {/* --- 🍔 메뉴별 분석 탭 --- */}
+                            {activeTab === "menu" && (
+                                <div className="animate-fadeIn space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                                    <div className="flex justify-end mb-2">
+                                        <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">※ 매출액 기준 내림차순</span>
+                                    </div>
+                                    {stats.menu_stats.map((m, idx) => (
+                                        <div key={idx} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-indigo-200 transition">
+                                            <div className="flex items-center gap-4">
+                                                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shadow-sm ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 text-white' : idx === 2 ? 'bg-orange-300 text-white' : 'bg-white text-gray-400 border border-gray-200'}`}>
+                                                    {idx+1}
+                                                </span>
+                                                <div>
+                                                    <p className="font-bold text-gray-800 text-base">{m.name}</p>
+                                                    <p className="text-xs text-gray-500 mt-0.5">{m.count}개 팔림</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="block font-black text-lg text-indigo-700">{m.revenue.toLocaleString()}원</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {stats.menu_stats.length === 0 && <p className="text-center text-gray-400 py-10 font-bold">결제된 메뉴가 없습니다.</p>}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </>
             ) : (
-                <div className="text-center py-20 text-gray-400">데이터를 불러오는 중...</div>
+                <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                    <span className="text-4xl mb-4 animate-spin">⏳</span>
+                    <p className="font-bold">데이터를 집계하고 있습니다...</p>
+                </div>
             )}
         </div>
     );
