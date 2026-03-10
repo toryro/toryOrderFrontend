@@ -200,20 +200,45 @@ export function AdminHours({ store, token, fetchStore }) {
     const [newHolidayDate, setNewHolidayDate] = useState("");
     const [newHolidayDesc, setNewHolidayDesc] = useState("");
 
+    // 브레이크 타임 일괄 추가용 상태
+    const [isAddingBreak, setIsAddingBreak] = useState(false);
+    const [breakDays, setBreakDays] = useState([0, 1, 2, 3, 4, 5, 6]); 
+    const [breakStart, setBreakStart] = useState("");
+    const [breakEnd, setBreakEnd] = useState("");
+
+    // 휴일 수정용 상태
+    const [editingHoliday, setEditingHoliday] = useState(null);
+
     const days = ["월", "화", "수", "목", "금", "토", "일"];
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     useEffect(() => {
-        if (store.operating_hours && store.operating_hours.length > 0) {
+        if (store?.operating_hours?.length > 0) {
             const sorted = [...store.operating_hours].sort((a, b) => a.day_of_week - b.day_of_week);
             const fullHours = Array.from({ length: 7 }, (_, i) => {
                 const exist = sorted.find(h => h.day_of_week === i);
-                return exist || { day_of_week: i, open_time: "09:00", close_time: "22:00", is_closed: false };
+                
+                let parsedBreaks = [];
+                try {
+                    if (exist?.break_time_list) {
+                        const parsed = JSON.parse(exist.break_time_list);
+                        if (Array.isArray(parsed)) parsedBreaks = parsed;
+                    }
+                } catch(e) {}
+
+                return { 
+                    day_of_week: i, 
+                    open_time: exist?.open_time || "09:00", 
+                    close_time: exist?.close_time || "22:00", 
+                    is_closed: exist?.is_closed || false,
+                    break_times: parsedBreaks 
+                };
             });
             setHours(fullHours);
         } else {
-            setHours(Array.from({ length: 7 }, (_, i) => ({ day_of_week: i, open_time: "09:00", close_time: "22:00", is_closed: false })));
+            setHours(Array.from({ length: 7 }, (_, i) => ({ day_of_week: i, open_time: "09:00", close_time: "22:00", is_closed: false, break_times: [] })));
         }
-        setHolidays(store.holidays || []);
+        setHolidays(store?.holidays || []);
     }, [store]);
 
     const handleHourChange = (index, field, value) => {
@@ -222,21 +247,82 @@ export function AdminHours({ store, token, fetchStore }) {
         setHours(newHours);
     };
 
+    const handleRemoveBreakTime = (index, btIndex) => {
+        const newHours = [...hours];
+        newHours[index].break_times.splice(btIndex, 1);
+        setHours(newHours);
+    };
+
+    const handleBreakTimeChange = (index, btIndex, field, value) => {
+        const newHours = [...hours];
+        newHours[index].break_times[btIndex][field] = value;
+        setHours(newHours);
+    };
+
+    const handleApplyBulkBreak = () => {
+        if (!breakStart || !breakEnd) return toast.error("시작 시간과 종료 시간을 입력해주세요.");
+        if (breakStart >= breakEnd) return toast.error("종료 시간이 시작 시간보다 늦어야 합니다.");
+        if (breakDays.length === 0) return toast.error("적용할 요일을 1개 이상 선택해주세요.");
+
+        let hasOverlap = false;
+        
+        for (const d of breakDays) {
+            const dayBreaks = hours[d].break_times || [];
+            for (const bt of dayBreaks) {
+                if (bt.start && bt.end) {
+                    if (breakStart < bt.end && breakEnd > bt.start) {
+                        hasOverlap = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (hasOverlap) {
+            if (!window.confirm("⚠️ 기존에 설정된 휴게시간과 겹치는 요일이 있습니다. 그래도 추가하시겠습니까?")) {
+                return;
+            }
+        }
+
+        const newHours = [...hours];
+        breakDays.forEach(d => {
+            if (!newHours[d].break_times) newHours[d].break_times = [];
+            newHours[d].break_times.push({ start: breakStart, end: breakEnd });
+            newHours[d].break_times.sort((a, b) => a.start.localeCompare(b.start));
+        });
+
+        setHours(newHours);
+        setIsAddingBreak(false);
+        setBreakStart("");
+        setBreakEnd("");
+        toast.success("선택한 요일에 휴게시간이 추가되었습니다! 아래 '저장' 버튼을 눌러주세요.");
+    };
+
+    const toggleBreakDay = (dayIdx) => {
+        if (breakDays.includes(dayIdx)) setBreakDays(breakDays.filter(d => d !== dayIdx));
+        else setBreakDays([...breakDays, dayIdx]);
+    };
+
     const handleSaveHours = async () => {
+        const payload = hours.map(h => ({
+            day_of_week: h.day_of_week,
+            open_time: h.open_time,
+            close_time: h.close_time,
+            is_closed: h.is_closed,
+            break_time_list: JSON.stringify((h.break_times || []).filter(bt => bt.start && bt.end)) 
+        }));
+
         try {
-            await axios.post(`${API_BASE_URL}/stores/${store.id}/hours`, hours, { headers: { Authorization: `Bearer ${token}` } });
-            toast.success("영업시간이 저장되었습니다.");
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/hours`, payload, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("영업시간 및 브레이크 타임이 저장되었습니다.");
             fetchStore();
         } catch (err) { toast.error("저장 실패"); }
     };
 
     const handleAddHoliday = async () => {
-        if (!newHolidayDate) return;
+        if (!newHolidayDate) return toast.error("날짜를 입력해주세요.");
         try {
-            await axios.post(`${API_BASE_URL}/stores/${store.id}/holidays`, 
-                { date: newHolidayDate, description: newHolidayDesc }, 
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/holidays`, { date: newHolidayDate, description: newHolidayDesc }, { headers: { Authorization: `Bearer ${token}` } });
             setNewHolidayDate(""); setNewHolidayDesc(""); fetchStore();
         } catch (err) { toast.error("휴일 추가 실패"); }
     };
@@ -247,41 +333,135 @@ export function AdminHours({ store, token, fetchStore }) {
         catch (err) { toast.error("삭제 실패"); }
     };
 
+    const handleSaveEditHoliday = async () => {
+        if (!editingHoliday.date) return toast.error("날짜를 입력해주세요.");
+        try {
+            await axios.delete(`${API_BASE_URL}/holidays/${editingHoliday.id}`, { headers: { Authorization: `Bearer ${token}` } });
+            await axios.post(`${API_BASE_URL}/stores/${store.id}/holidays`, { date: editingHoliday.date, description: editingHoliday.description }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("휴일 정보가 수정되었습니다.");
+            setEditingHoliday(null);
+            fetchStore();
+        } catch (err) { toast.error("수정 실패"); }
+    };
+
+    const validHolidays = holidays.filter(h => h.date >= todayStr).sort((a, b) => a.date.localeCompare(b.date));
+
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h3 className="font-bold text-xl mb-4">⏰ 요일별 영업 시간</h3>
-                <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 pb-20 animate-fadeIn">
+            
+            {/* 영업 시간 영역 (넓게 3칸 차지) */}
+            <div className="lg:col-span-3 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
+                    <h3 className="font-bold text-xl text-gray-800">⏰ 요일별 영업 및 휴게 시간</h3>
+                    
+                    <button onClick={() => setIsAddingBreak(!isAddingBreak)} className={`px-4 py-2 rounded-lg font-bold text-sm transition border-2 ${isAddingBreak ? 'bg-orange-50 border-orange-500 text-orange-700' : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300'}`}>
+                        {isAddingBreak ? "닫기" : "☕ 휴게시간 일괄 추가"}
+                    </button>
+                </div>
+
+                {isAddingBreak && (
+                    <div className="mb-6 p-4 bg-orange-50/50 border border-orange-200 rounded-xl animate-fadeIn">
+                        <p className="text-sm font-bold text-orange-800 mb-3">적용할 요일과 시간을 선택해주세요.</p>
+                        <div className="flex flex-wrap gap-2 mb-4">
+                            {days.map((dayName, idx) => (
+                                <button key={idx} onClick={() => toggleBreakDay(idx)} className={`w-10 h-10 rounded-full font-bold text-sm transition ${breakDays.includes(idx) ? 'bg-orange-500 text-white shadow-md' : 'bg-white border border-gray-300 text-gray-500'}`}>
+                                    {dayName}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input type="time" className="border border-orange-200 rounded-lg p-2 font-bold outline-none flex-1 min-w-0" value={breakStart} onChange={e=>setBreakStart(e.target.value)} />
+                            <span className="font-bold text-gray-400">~</span>
+                            <input type="time" className="border border-orange-200 rounded-lg p-2 font-bold outline-none flex-1 min-w-0" value={breakEnd} onChange={e=>setBreakEnd(e.target.value)} />
+                            <button onClick={handleApplyBulkBreak} className="bg-orange-600 text-white px-4 py-2.5 rounded-lg font-bold shadow-md hover:bg-orange-700 ml-auto shrink-0 whitespace-nowrap text-sm">
+                                일괄 추가
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                <div className="space-y-4">
                     {hours.map((h, idx) => (
-                        <div key={idx} className={`flex items-center gap-2 p-2 rounded ${h.is_closed ? "bg-gray-100 opacity-50" : ""}`}>
-                            <span className="w-8 font-bold text-center">{days[h.day_of_week]}</span>
-                            <input type="time" className="border rounded p-1" value={h.open_time} onChange={e=>handleHourChange(idx, "open_time", e.target.value)} disabled={h.is_closed}/>
-                            <span>~</span>
-                            <input type="time" className="border rounded p-1" value={h.close_time} onChange={e=>handleHourChange(idx, "close_time", e.target.value)} disabled={h.is_closed}/>
-                            <label className="flex items-center gap-1 ml-auto text-sm cursor-pointer">
-                                <input type="checkbox" checked={h.is_closed} onChange={e=>handleHourChange(idx, "is_closed", e.target.checked)}/> 휴무
-                            </label>
+                        <div key={idx} className={`flex flex-col gap-3 p-4 rounded-xl border-2 transition ${h.is_closed ? "bg-gray-50 border-gray-200 opacity-60" : "bg-white border-indigo-100 hover:border-indigo-300 shadow-sm"}`}>
+                            
+                            {/* 1. 메인 영업 시간 (가로 한 줄) */}
+                            <div className="flex items-center gap-2 w-full">
+                                <span className={`w-8 font-black text-center text-lg shrink-0 ${h.day_of_week >= 5 ? "text-red-500" : "text-gray-700"}`}>{days[h.day_of_week]}</span>
+                                
+                                <input type="time" className="border-2 border-gray-200 rounded-lg p-1.5 font-bold focus:border-indigo-500 outline-none flex-1 min-w-0 text-sm md:text-base" value={h.open_time} onChange={e=>handleHourChange(idx, "open_time", e.target.value)} disabled={h.is_closed}/>
+                                
+                                <span className="font-bold text-gray-400 shrink-0">~</span>
+                                
+                                <input type="time" className="border-2 border-gray-200 rounded-lg p-1.5 font-bold focus:border-indigo-500 outline-none flex-1 min-w-0 text-sm md:text-base" value={h.close_time} onChange={e=>handleHourChange(idx, "close_time", e.target.value)} disabled={h.is_closed}/>
+                                
+                                <label className="flex items-center gap-1.5 ml-auto text-sm cursor-pointer font-bold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition whitespace-nowrap shrink-0">
+                                    <input type="checkbox" className="w-4 h-4 shrink-0" checked={h.is_closed} onChange={e=>handleHourChange(idx, "is_closed", e.target.checked)}/> 
+                                    <span>휴무</span>
+                                </label>
+                            </div>
+                            
+                            {/* 2. 휴게시간 리스트 (항상 아래로 떨어짐) */}
+                            <div className="flex flex-col gap-2 sm:pl-10">
+                                {(h.break_times || []).map((bt, btIndex) => (
+                                    // ✨ flex-wrap을 추가하고 너비를 w-[125px]로 넉넉하게 늘렸습니다.
+                                    <div key={btIndex} className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 text-sm bg-orange-50/50 p-2 rounded-lg border border-orange-100 w-fit max-w-full">
+                                        <span className="font-extrabold text-orange-600 px-1 text-xs shrink-0">☕ Break {btIndex + 1}</span>
+                                        <input type="time" className="border border-gray-200 rounded bg-white p-1.5 text-sm font-bold text-gray-700 outline-none w-[125px] shrink-0" value={bt.start || ""} onChange={e=>handleBreakTimeChange(idx, btIndex, "start", e.target.value)} disabled={h.is_closed}/>
+                                        <span className="text-gray-400 shrink-0">-</span>
+                                        <input type="time" className="border border-gray-200 rounded bg-white p-1.5 text-sm font-bold text-gray-700 outline-none w-[125px] shrink-0" value={bt.end || ""} onChange={e=>handleBreakTimeChange(idx, btIndex, "end", e.target.value)} disabled={h.is_closed}/>
+                                        <button onClick={() => handleRemoveBreakTime(idx, btIndex)} className="text-red-400 hover:text-red-600 px-2 font-bold text-lg leading-none shrink-0" title="삭제">
+                                            ×
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ))}
                 </div>
-                <button onClick={handleSaveHours} className="mt-6 w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">시간표 저장</button>
+                <button onClick={handleSaveHours} className="mt-6 w-full bg-slate-800 text-white py-4 rounded-xl font-bold text-lg hover:bg-black shadow-md transition">시간표 저장 💾</button>
             </div>
 
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h3 className="font-bold text-xl mb-4">📅 휴일 설정</h3>
-                <div className="flex gap-2 mb-4">
-                    <input type="date" className="border p-2 rounded" value={newHolidayDate} onChange={e=>setNewHolidayDate(e.target.value)} />
-                    <input type="text" className="border p-2 rounded flex-1" placeholder="사유 (예: 설날)" value={newHolidayDesc} onChange={e=>setNewHolidayDesc(e.target.value)} />
-                    <button onClick={handleAddHoliday} className="bg-gray-800 text-white px-4 rounded font-bold">추가</button>
+            {/* 휴일 설정 영역 (2칸 차지) */}
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-fit">
+                <h3 className="font-bold text-xl mb-5 text-gray-800">📅 예정된 휴일</h3>
+                
+                <div className="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100 flex flex-col gap-2 overflow-hidden box-border">
+                    <div className="flex gap-2 w-full">
+                        <input type="date" className="border border-gray-300 p-2 rounded-lg font-bold flex-1 min-w-0" value={newHolidayDate} onChange={e=>setNewHolidayDate(e.target.value)} />
+                        <button onClick={handleAddHoliday} className="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700 transition shadow-sm whitespace-nowrap shrink-0">추가</button>
+                    </div>
+                    <input type="text" className="border border-gray-300 p-2 rounded-lg w-full font-bold text-sm min-w-0" placeholder="휴무 사유 (예: 추석 연휴)" value={newHolidayDesc} onChange={e=>setNewHolidayDesc(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleAddHoliday()} />
                 </div>
-                <ul className="space-y-2">
-                    {holidays.map(h => (
-                        <li key={h.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border">
-                            <span>{h.date} <span className="text-gray-500 text-sm">({h.description})</span></span>
-                            <button onClick={()=>handleDeleteHoliday(h.id)} className="text-red-500 text-sm hover:underline">삭제</button>
+
+                <ul className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                    {validHolidays.map(h => (
+                        <li key={h.id} className="p-4 bg-white rounded-xl border-2 border-gray-100 hover:border-indigo-200 transition group relative">
+                            {editingHoliday && editingHoliday.id === h.id ? (
+                                <div className="flex flex-col gap-2">
+                                    <input type="date" className="border border-indigo-300 p-1.5 rounded font-bold text-sm" value={editingHoliday.date} onChange={e=>setEditingHoliday({...editingHoliday, date: e.target.value})} />
+                                    <input type="text" className="border border-indigo-300 p-1.5 rounded font-bold text-sm" value={editingHoliday.description} onChange={e=>setEditingHoliday({...editingHoliday, description: e.target.value})} />
+                                    <div className="flex gap-2 mt-1">
+                                        <button onClick={handleSaveEditHoliday} className="flex-1 bg-indigo-500 text-white text-xs font-bold py-1.5 rounded">저장</button>
+                                        <button onClick={()=>setEditingHoliday(null)} className="flex-1 bg-gray-200 text-gray-700 text-xs font-bold py-1.5 rounded">취소</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex flex-col pr-8">
+                                        <span className={`font-black text-lg ${h.date === todayStr ? "text-red-600" : "text-gray-800"}`}>
+                                            {h.date} {h.date === todayStr && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded align-middle ml-1">오늘</span>}
+                                        </span>
+                                        <span className="text-gray-500 text-sm font-bold">{h.description || "사유 없음"}</span>
+                                    </div>
+                                    <div className="absolute top-4 right-3 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={()=>setEditingHoliday({id: h.id, date: h.date, description: h.description})} className="text-indigo-500 hover:bg-indigo-50 px-2 py-1 rounded text-xs font-bold">수정</button>
+                                        <button onClick={()=>handleDeleteHoliday(h.id)} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold">삭제</button>
+                                    </div>
+                                </>
+                            )}
                         </li>
                     ))}
-                    {holidays.length === 0 && <li className="text-gray-400 text-center py-4">등록된 휴일이 없습니다.</li>}
+                    {validHolidays.length === 0 && <li className="text-gray-400 font-bold text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-sm">예정된 임시 휴일이 없습니다.</li>}
                 </ul>
             </div>
         </div>
