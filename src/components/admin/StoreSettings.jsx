@@ -193,7 +193,7 @@ export function AdminCallOptionManagement({ store, token }) {
     );
 }
 
-// 3. 영업 시간 관리
+// 3. 영업 시간 관리 (휴일 로직 완벽 복구 버전)
 export function AdminHours({ store, token, fetchStore }) { 
     const [hours, setHours] = useState([]);
     const [holidays, setHolidays] = useState([]);
@@ -265,7 +265,6 @@ export function AdminHours({ store, token, fetchStore }) {
         if (breakDays.length === 0) return toast.error("적용할 요일을 1개 이상 선택해주세요.");
 
         let hasOverlap = false;
-        
         for (const d of breakDays) {
             const dayBreaks = hours[d].break_times || [];
             for (const bt of dayBreaks) {
@@ -279,9 +278,7 @@ export function AdminHours({ store, token, fetchStore }) {
         }
 
         if (hasOverlap) {
-            if (!window.confirm("⚠️ 기존에 설정된 휴게시간과 겹치는 요일이 있습니다. 그래도 추가하시겠습니까?")) {
-                return;
-            }
+            if (!window.confirm("⚠️ 기존에 설정된 휴게시간과 겹치는 요일이 있습니다. 그래도 추가하시겠습니까?")) return;
         }
 
         const newHours = [...hours];
@@ -347,93 +344,81 @@ export function AdminHours({ store, token, fetchStore }) {
     const validHolidays = holidays.filter(h => h.date >= todayStr).sort((a, b) => a.date.localeCompare(b.date));
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 pb-20 animate-fadeIn">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fadeIn h-full pb-10">
             
-            {/* 영업 시간 영역 (넓게 3칸 차지) */}
-            <div className="lg:col-span-3 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+            {/* 영업 시간 영역 (넓게 2칸 차지) */}
+            <div className="xl:col-span-2 bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
                     <h3 className="font-bold text-xl text-gray-800">⏰ 요일별 영업 및 휴게 시간</h3>
-                    
                     <button onClick={() => setIsAddingBreak(!isAddingBreak)} className={`px-4 py-2 rounded-lg font-bold text-sm transition border-2 ${isAddingBreak ? 'bg-orange-50 border-orange-500 text-orange-700' : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300'}`}>
                         {isAddingBreak ? "닫기" : "☕ 휴게시간 일괄 추가"}
                     </button>
                 </div>
 
                 {isAddingBreak && (
-                    <div className="mb-6 p-4 bg-orange-50/50 border border-orange-200 rounded-xl animate-fadeIn">
-                        <p className="text-sm font-bold text-orange-800 mb-3">적용할 요일과 시간을 선택해주세요.</p>
-                        <div className="flex flex-wrap gap-2 mb-4">
+                    <div className="mb-4 p-4 bg-orange-50/50 border border-orange-200 rounded-xl animate-fadeIn">
+                        <p className="text-sm font-bold text-orange-800 mb-2">적용할 요일과 시간을 선택해주세요.</p>
+                        <div className="flex flex-wrap gap-2 mb-3">
                             {days.map((dayName, idx) => (
-                                <button key={idx} onClick={() => toggleBreakDay(idx)} className={`w-10 h-10 rounded-full font-bold text-sm transition ${breakDays.includes(idx) ? 'bg-orange-500 text-white shadow-md' : 'bg-white border border-gray-300 text-gray-500'}`}>
+                                <button key={idx} onClick={() => toggleBreakDay(idx)} className={`w-9 h-9 rounded-full font-bold text-sm transition ${breakDays.includes(idx) ? 'bg-orange-500 text-white shadow-md' : 'bg-white border border-gray-300 text-gray-500'}`}>
                                     {dayName}
                                 </button>
                             ))}
                         </div>
-                        <div className="flex items-center gap-2">
-                            <input type="time" className="border border-orange-200 rounded-lg p-2 font-bold outline-none flex-1 min-w-0" value={breakStart} onChange={e=>setBreakStart(e.target.value)} />
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <input type="time" className="border border-orange-200 rounded-lg p-2 font-bold outline-none w-32" value={breakStart} onChange={e=>setBreakStart(e.target.value)} />
                             <span className="font-bold text-gray-400">~</span>
-                            <input type="time" className="border border-orange-200 rounded-lg p-2 font-bold outline-none flex-1 min-w-0" value={breakEnd} onChange={e=>setBreakEnd(e.target.value)} />
-                            <button onClick={handleApplyBulkBreak} className="bg-orange-600 text-white px-4 py-2.5 rounded-lg font-bold shadow-md hover:bg-orange-700 ml-auto shrink-0 whitespace-nowrap text-sm">
-                                일괄 추가
-                            </button>
+                            <input type="time" className="border border-orange-200 rounded-lg p-2 font-bold outline-none w-32" value={breakEnd} onChange={e=>setBreakEnd(e.target.value)} />
+                            <button onClick={handleApplyBulkBreak} className="bg-orange-600 text-white px-4 py-2.5 rounded-lg font-bold shadow-md hover:bg-orange-700">일괄 추가</button>
                         </div>
                     </div>
                 )}
 
-                <div className="space-y-4">
+                <div className="space-y-3 flex-1">
                     {hours.map((h, idx) => (
-                        <div key={idx} className={`flex flex-col gap-3 p-4 rounded-xl border-2 transition ${h.is_closed ? "bg-gray-50 border-gray-200 opacity-60" : "bg-white border-indigo-100 hover:border-indigo-300 shadow-sm"}`}>
-                            
-                            {/* 1. 메인 영업 시간 (가로 한 줄) */}
-                            <div className="flex items-center gap-2 w-full">
-                                <span className={`w-8 font-black text-center text-lg shrink-0 ${h.day_of_week >= 5 ? "text-red-500" : "text-gray-700"}`}>{days[h.day_of_week]}</span>
-                                
-                                <input type="time" className="border-2 border-gray-200 rounded-lg p-1.5 font-bold focus:border-indigo-500 outline-none flex-1 min-w-0 text-sm md:text-base" value={h.open_time} onChange={e=>handleHourChange(idx, "open_time", e.target.value)} disabled={h.is_closed}/>
-                                
+                        <div key={idx} className={`flex flex-col gap-3 p-4 rounded-xl border-2 transition ${h.is_closed ? "bg-gray-50 border-gray-200 opacity-60" : "bg-white border-indigo-100 shadow-sm"}`}>
+                            {/* 메인 영업 시간 */}
+                            <div className="flex flex-wrap items-center gap-2 w-full">
+                                <span className={`w-6 font-black text-center text-lg shrink-0 ${h.day_of_week >= 5 ? "text-red-500" : "text-gray-700"}`}>{days[h.day_of_week]}</span>
+                                <input type="time" className="border-2 border-gray-200 rounded-lg p-1.5 font-bold focus:border-indigo-500 outline-none w-28 text-sm" value={h.open_time} onChange={e=>handleHourChange(idx, "open_time", e.target.value)} disabled={h.is_closed}/>
                                 <span className="font-bold text-gray-400 shrink-0">~</span>
-                                
-                                <input type="time" className="border-2 border-gray-200 rounded-lg p-1.5 font-bold focus:border-indigo-500 outline-none flex-1 min-w-0 text-sm md:text-base" value={h.close_time} onChange={e=>handleHourChange(idx, "close_time", e.target.value)} disabled={h.is_closed}/>
-                                
-                                <label className="flex items-center gap-1.5 ml-auto text-sm cursor-pointer font-bold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition whitespace-nowrap shrink-0">
-                                    <input type="checkbox" className="w-4 h-4 shrink-0" checked={h.is_closed} onChange={e=>handleHourChange(idx, "is_closed", e.target.checked)}/> 
-                                    <span>휴무</span>
+                                <input type="time" className="border-2 border-gray-200 rounded-lg p-1.5 font-bold focus:border-indigo-500 outline-none w-28 text-sm" value={h.close_time} onChange={e=>handleHourChange(idx, "close_time", e.target.value)} disabled={h.is_closed}/>
+                                <label className="flex items-center gap-1.5 sm:ml-auto text-sm cursor-pointer font-bold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition shrink-0">
+                                    <input type="checkbox" className="w-4 h-4 shrink-0" checked={h.is_closed} onChange={e=>handleHourChange(idx, "is_closed", e.target.checked)}/> <span>휴무</span>
                                 </label>
                             </div>
                             
-                            {/* 2. 휴게시간 리스트 (항상 아래로 떨어짐) */}
-                            <div className="flex flex-col gap-2 sm:pl-10">
+                            {/* 휴게시간 */}
+                            <div className="flex flex-wrap gap-2 sm:pl-8">
                                 {(h.break_times || []).map((bt, btIndex) => (
-                                    // ✨ flex-wrap을 추가하고 너비를 w-[125px]로 넉넉하게 늘렸습니다.
-                                    <div key={btIndex} className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 text-sm bg-orange-50/50 p-2 rounded-lg border border-orange-100 w-fit max-w-full">
-                                        <span className="font-extrabold text-orange-600 px-1 text-xs shrink-0">☕ Break {btIndex + 1}</span>
-                                        <input type="time" className="border border-gray-200 rounded bg-white p-1.5 text-sm font-bold text-gray-700 outline-none w-[125px] shrink-0" value={bt.start || ""} onChange={e=>handleBreakTimeChange(idx, btIndex, "start", e.target.value)} disabled={h.is_closed}/>
+                                    <div key={btIndex} className="flex items-center gap-1.5 text-sm bg-orange-50/50 p-1.5 rounded-lg border border-orange-100 shrink-0">
+                                        <span className="font-extrabold text-orange-600 px-1 text-xs shrink-0">☕ Break</span>
+                                        <input type="time" className="border border-gray-200 rounded bg-white p-1.5 text-xs font-bold text-gray-700 outline-none w-24 shrink-0" value={bt.start || ""} onChange={e=>handleBreakTimeChange(idx, btIndex, "start", e.target.value)} disabled={h.is_closed}/>
                                         <span className="text-gray-400 shrink-0">-</span>
-                                        <input type="time" className="border border-gray-200 rounded bg-white p-1.5 text-sm font-bold text-gray-700 outline-none w-[125px] shrink-0" value={bt.end || ""} onChange={e=>handleBreakTimeChange(idx, btIndex, "end", e.target.value)} disabled={h.is_closed}/>
-                                        <button onClick={() => handleRemoveBreakTime(idx, btIndex)} className="text-red-400 hover:text-red-600 px-2 font-bold text-lg leading-none shrink-0" title="삭제">
-                                            ×
-                                        </button>
+                                        <input type="time" className="border border-gray-200 rounded bg-white p-1.5 text-xs font-bold text-gray-700 outline-none w-24 shrink-0" value={bt.end || ""} onChange={e=>handleBreakTimeChange(idx, btIndex, "end", e.target.value)} disabled={h.is_closed}/>
+                                        <button onClick={() => handleRemoveBreakTime(idx, btIndex)} className="text-red-400 hover:text-red-600 px-2 font-bold text-lg leading-none shrink-0">×</button>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     ))}
                 </div>
-                <button onClick={handleSaveHours} className="mt-6 w-full bg-slate-800 text-white py-4 rounded-xl font-bold text-lg hover:bg-black shadow-md transition">시간표 저장 💾</button>
+                <button onClick={handleSaveHours} className="mt-6 w-full bg-slate-800 text-white py-3.5 rounded-xl font-bold text-lg hover:bg-black shadow-md transition shrink-0">시간표 저장 💾</button>
             </div>
 
-            {/* 휴일 설정 영역 (2칸 차지) */}
-            <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-fit">
-                <h3 className="font-bold text-xl mb-5 text-gray-800">📅 예정된 휴일</h3>
-                
-                <div className="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100 flex flex-col gap-2 overflow-hidden box-border">
+            {/* 휴일 설정 영역 (1칸 차지) */}
+            <div className="xl:col-span-1 bg-white p-5 rounded-2xl shadow-sm border border-gray-200 h-fit flex flex-col">
+                <h3 className="font-bold text-xl mb-4 text-gray-800 shrink-0">📅 예정된 휴일</h3>
+                <div className="mb-4 bg-gray-50 p-4 rounded-xl border border-gray-100 flex flex-col gap-2 shrink-0">
                     <div className="flex gap-2 w-full">
                         <input type="date" className="border border-gray-300 p-2 rounded-lg font-bold flex-1 min-w-0" value={newHolidayDate} onChange={e=>setNewHolidayDate(e.target.value)} />
                         <button onClick={handleAddHoliday} className="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700 transition shadow-sm whitespace-nowrap shrink-0">추가</button>
                     </div>
                     <input type="text" className="border border-gray-300 p-2 rounded-lg w-full font-bold text-sm min-w-0" placeholder="휴무 사유 (예: 추석 연휴)" value={newHolidayDesc} onChange={e=>setNewHolidayDesc(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleAddHoliday()} />
                 </div>
-
-                <ul className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                <ul className="space-y-3 overflow-y-auto max-h-[600px] pr-1">
+                    
+                    {/* ✨ 날아갔던 휴일 리스트 렌더링 코드가 완벽히 복구되었습니다! */}
                     {validHolidays.map(h => (
                         <li key={h.id} className="p-4 bg-white rounded-xl border-2 border-gray-100 hover:border-indigo-200 transition group relative">
                             {editingHoliday && editingHoliday.id === h.id ? (
@@ -462,6 +447,7 @@ export function AdminHours({ store, token, fetchStore }) {
                         </li>
                     ))}
                     {validHolidays.length === 0 && <li className="text-gray-400 font-bold text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-sm">예정된 임시 휴일이 없습니다.</li>}
+                    
                 </ul>
             </div>
         </div>
@@ -806,6 +792,255 @@ export function AdminUsers({ store, token }) {
                 <tbody>{users.map(u => (<tr key={u.id} className="border-b hover:bg-gray-50"><td className="p-3 font-bold">{u.name || "-"}</td><td className="p-3 text-gray-600">{u.email}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role==='SUPER_ADMIN'?'bg-red-100 text-red-700':u.role==='STORE_OWNER'?'bg-blue-100 text-blue-700':'bg-gray-100 text-gray-700'}`}>{u.role}</span></td><td className="p-3 text-sm">{u.is_active ? "🟢 활성" : "🔴 정지"}</td><td className="p-3 text-right"><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 hover:underline text-sm">삭제</button></td></tr>))}</tbody>
             </table>
             {isModalOpen && (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-96 shadow-2xl"><h3 className="text-xl font-bold mb-4">새 계정</h3><div className="space-y-3"><input className="border w-full p-2 rounded" placeholder="이름" value={newUserName} onChange={e=>setNewUserName(e.target.value)} /><input className="border w-full p-2 rounded" placeholder="이메일" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} /><input className="border w-full p-2 rounded" type="password" placeholder="비밀번호" value={newUserPassword} onChange={e=>setNewUserPassword(e.target.value)} /><select className="border w-full p-2 rounded" value={newUserRole} onChange={e=>setNewUserRole(e.target.value)}><option value="STAFF">직원 (STAFF)</option><option value="STORE_OWNER">점주 (STORE_OWNER)</option></select></div><div className="flex gap-2 mt-6"><button onClick={handleCreateUser} className="flex-1 bg-indigo-600 text-white py-2 rounded font-bold">생성</button><button onClick={()=>setIsModalOpen(false)} className="flex-1 bg-gray-200 py-2 rounded font-bold">취소</button></div></div></div>)}
+        </div>
+    );
+}
+
+// 7. 주문/결제 내역 및 환불 (UI 개선 및 원버튼 스마트 취소 적용)
+export function AdminOrders({ store, token }) {
+    const [orders, setOrders] = useState([]);
+    const [loading, setLoading] = useState(false);
+    
+    // ✨ 취소 방식 선택 모달용 상태 (새로 추가됨)
+    const [cancelActionOrder, setCancelActionOrder] = useState(null);
+    // 메뉴별 부분 취소 모달용 상태
+    const [cancelModal, setCancelModal] = useState({ isOpen: false, order: null, selectedItemIds: [], reason: "" });
+
+    const fetchOrders = async () => {
+        setLoading(true);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/stores/${store.id}/orders/history`, { headers: { Authorization: `Bearer ${token}` } });
+            setOrders(res.data);
+        } catch (err) { toast.error("주문 내역을 불러오지 못했습니다."); }
+        finally { setLoading(false); }
+    };
+
+    useEffect(() => { fetchOrders(); }, []);
+
+    const handleFullCancel = async (order) => {
+        if (!window.confirm(`[전체 취소]\n정말 ${order.total_price.toLocaleString()}원 결제를 전체 취소하시겠습니까?\n(주방 화면에서도 즉시 삭제됩니다)`)) return;
+        
+        try {
+            await axios.post(`${API_BASE_URL}/orders/${order.id}/cancel`, 
+                { reason: "관리자 전액 환불 요청" }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("결제가 전체 취소되었습니다.");
+            setCancelActionOrder(null); // 선택 창 닫기
+            fetchOrders();
+        } catch (err) { toast.error(err.response?.data?.detail || "취소에 실패했습니다."); }
+    };
+
+    const toggleCancelItem = (itemId) => {
+        setCancelModal(prev => {
+            const isSelected = prev.selectedItemIds.includes(itemId);
+            const newIds = isSelected 
+                ? prev.selectedItemIds.filter(id => id !== itemId) 
+                : [...prev.selectedItemIds, itemId];
+            return { ...prev, selectedItemIds: newIds };
+        });
+    };
+
+    const calculateCancelAmount = () => {
+        if (!cancelModal.order) return 0;
+        return cancelModal.order.items
+            .filter(i => cancelModal.selectedItemIds.includes(i.id))
+            .reduce((sum, i) => sum + (i.price * i.quantity), 0);
+    };
+
+    const handlePartialCancel = async () => {
+        if (cancelModal.selectedItemIds.length === 0) return toast.error("취소할 메뉴를 하나 이상 선택해주세요.");
+
+        try {
+            await axios.post(`${API_BASE_URL}/orders/${cancelModal.order.id}/cancel`, 
+                { 
+                    reason: cancelModal.reason || "관리자 메뉴 부분 취소", 
+                    cancelled_item_ids: cancelModal.selectedItemIds 
+                }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success(`선택한 메뉴가 부분 취소되었습니다.`);
+            setCancelModal({ isOpen: false, order: null, selectedItemIds: [], reason: "" });
+            fetchOrders();
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "부분 취소에 실패했습니다.");
+        }
+    };
+
+    return (
+        // ✨ 1. h-full, flex-col, overflow-hidden을 사용하여 바깥쪽 브라우저의 이중 스크롤을 완벽 차단합니다.
+        <div className="bg-white p-4 lg:p-6 rounded-2xl shadow-sm border border-gray-200 animate-fadeIn h-full flex flex-col overflow-hidden">
+            
+            {/* 상단 헤더 영역 (shrink-0으로 고정하여 찌그러지지 않게 방어) */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 shrink-0">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">🧾 주문 및 결제 내역 (환불 처리)</h2>
+                <button onClick={fetchOrders} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 flex items-center gap-2 transition">
+                    🔄 새로고침
+                </button>
+            </div>
+
+            {/* ✨ 2. flex-1과 overflow-auto를 적용하여 '표 내부에서만' 예쁘게 스크롤되도록 만듭니다. */}
+            <div className="flex-1 overflow-auto border border-gray-200 rounded-xl relative bg-white">
+                
+                {/* ✨ 3. 표 최소 너비를 700px로 확 줄여서 웬만한 화면에선 가로 스크롤 없이 꽉 차게 변경! */}
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                    {/* ✨ 4. sticky 속성으로 스크롤을 내려도 테이블 헤더(분류명)가 항상 상단에 고정됩니다. */}
+                    <thead className="sticky top-0 z-10 shadow-sm">
+                        <tr className="bg-slate-900 text-white text-sm">
+                            <th className="p-3 font-bold w-24 text-center">주문일시</th>
+                            <th className="p-3 font-bold w-20 text-center">대기번호</th>
+                            <th className="p-3 font-bold w-24 text-center">테이블</th>
+                            <th className="p-3 font-bold">주문 메뉴</th>
+                            <th className="p-3 font-bold w-24 text-right">결제 금액</th>
+                            <th className="p-3 font-bold w-20 text-center">상태</th>
+                            <th className="p-3 font-bold w-28 text-center">취소 관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? <tr><td colSpan="7" className="text-center py-10 font-bold text-gray-400">데이터를 불러오는 중입니다...</td></tr> : null}
+                        {!loading && orders.map(o => {
+                            const cancelledAmt = o.items?.filter(i => i.is_cancelled).reduce((sum, i) => sum + (i.price * i.quantity), 0) || 0;
+                            const finalAmt = o.total_price - cancelledAmt;
+
+                            return (
+                                <tr key={o.id} className={`border-b border-gray-100 transition ${o.payment_status === "CANCELLED" ? "bg-red-50/30 opacity-70" : "hover:bg-gray-50"}`}>
+                                    <td className="p-3 text-center text-xs text-gray-500 font-medium">
+                                        {new Date(o.created_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                    </td>
+                                    <td className="p-3 text-center font-black text-gray-800 text-base">{o.daily_number}번</td>
+                                    <td className="p-3 text-center font-bold text-indigo-600 text-sm">{o.table_name}</td>
+                                    
+                                    <td className="p-3 text-sm font-bold text-gray-700">
+                                        <div className="flex flex-col gap-0.5 max-h-24 overflow-y-auto pr-1">
+                                            {o.items?.map(i => (
+                                                <span key={i.id} className={i.is_cancelled ? "line-through text-red-400 font-medium" : "truncate"}>
+                                                    {i.menu_name} <span className="text-xs text-gray-400">x{i.quantity}</span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </td>
+
+                                    <td className="p-3 text-right">
+                                        {o.payment_status === "PARTIAL_CANCELLED" ? (
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-gray-400 line-through text-[11px] font-normal">{o.total_price.toLocaleString()}원</span>
+                                                <span className="font-black text-red-600">{finalAmt.toLocaleString()}원</span>
+                                                <span className="text-[10px] text-yellow-600">(-{cancelledAmt.toLocaleString()}원)</span>
+                                            </div>
+                                        ) : o.payment_status === "CANCELLED" ? (
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-gray-400 line-through text-xs font-normal">{o.total_price.toLocaleString()}원</span>
+                                                <span className="font-black text-red-600">0원</span>
+                                            </div>
+                                        ) : (
+                                            <span className="font-black text-gray-900">{o.total_price.toLocaleString()}원</span>
+                                        )}
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                        {o.payment_status === "PAID" && <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm">결제완료</span>}
+                                        {o.payment_status === "CANCELLED" && <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm">전체취소</span>}
+                                        {o.payment_status === "PARTIAL_CANCELLED" && <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-[11px] font-bold shadow-sm">부분취소</span>}
+                                    </td>
+                                    
+                                    <td className="p-3 text-center">
+                                        <button 
+                                            onClick={() => setCancelActionOrder(o)} 
+                                            disabled={o.payment_status === "CANCELLED"}
+                                            className="bg-red-50 hover:bg-red-500 hover:text-white disabled:bg-gray-100 disabled:text-gray-400 disabled:border-transparent border border-red-200 text-red-600 text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-sm"
+                                        >
+                                            {o.payment_status === "CANCELLED" ? "취소불가" : "결제 취소"}
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* 취소 방식 선택 스마트 팝업 */}
+            {cancelActionOrder && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setCancelActionOrder(null)}>
+                    <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl animate-slideUp" onClick={e => e.stopPropagation()}>
+                        <div className="text-center mb-6">
+                            <span className="text-4xl">🤔</span>
+                            <h3 className="font-extrabold text-xl mt-2 text-gray-900">어떤 방식으로 취소할까요?</h3>
+                            <p className="text-sm text-gray-500 mt-1">대기번호 <span className="font-bold text-indigo-600">{cancelActionOrder.daily_number}번</span> 주문</p>
+                        </div>
+                        
+                        <div className="flex flex-col gap-3">
+                            <button onClick={() => {
+                                setCancelModal({ isOpen: true, order: cancelActionOrder, selectedItemIds: [], reason: "" });
+                                setCancelActionOrder(null); 
+                            }} 
+                            disabled={cancelActionOrder.items.every(i => i.is_cancelled)}
+                            className="w-full bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-transparent border border-indigo-200 p-4 rounded-xl font-bold text-lg transition text-left flex justify-between items-center group shadow-sm">
+                                <span>🍔 특정 메뉴만 취소</span>
+                                <span className="opacity-50 group-hover:opacity-100 transition-opacity">👉</span>
+                            </button>
+
+                            <button onClick={() => handleFullCancel(cancelActionOrder)} 
+                                className="w-full bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border border-red-200 p-4 rounded-xl font-bold text-lg transition text-left flex justify-between items-center group shadow-sm">
+                                <span>🚨 주문 전체 취소</span>
+                                <span className="opacity-50 group-hover:opacity-100 transition-opacity">🗑️</span>
+                            </button>
+                        </div>
+                        
+                        <button onClick={() => setCancelActionOrder(null)} className="w-full mt-4 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">닫기</button>
+                    </div>
+                </div>
+            )}
+
+            {/* 메뉴별 부분 취소 모달 */}
+            {cancelModal.isOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+                    <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl animate-fadeIn">
+                        <div className="border-b pb-3 mb-4">
+                            <h3 className="font-extrabold text-xl text-gray-900">🍔 취소할 메뉴 선택</h3>
+                            <p className="text-sm text-gray-500 mt-1">대기번호 <span className="font-bold text-indigo-600">{cancelModal.order.daily_number}번</span> 주문</p>
+                        </div>
+                        
+                        <div className="space-y-2 mb-4 max-h-48 overflow-y-auto pr-2">
+                            {cancelModal.order.items.map(item => {
+                                const isAlreadyCancelled = item.is_cancelled;
+                                return (
+                                    <label key={item.id} className={`flex justify-between items-center p-3 border rounded-xl cursor-pointer transition ${isAlreadyCancelled ? 'bg-gray-100 opacity-50' : 'hover:bg-indigo-50 border-gray-200'}`}>
+                                        <div className="flex items-center gap-3">
+                                            <input type="checkbox" 
+                                                className="w-5 h-5 accent-indigo-600 cursor-pointer"
+                                                disabled={isAlreadyCancelled}
+                                                checked={cancelModal.selectedItemIds.includes(item.id)}
+                                                onChange={() => toggleCancelItem(item.id)}
+                                            />
+                                            <span className={`font-bold text-sm ${isAlreadyCancelled ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                                {item.menu_name} <span className="text-gray-500 text-xs ml-1">x{item.quantity}</span>
+                                            </span>
+                                        </div>
+                                        <span className={`font-bold text-sm ${isAlreadyCancelled ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                                            {(item.price * item.quantity).toLocaleString()}원
+                                        </span>
+                                    </label>
+                                )
+                            })}
+                        </div>
+
+                        <div className="bg-red-50 p-3 rounded-lg border border-red-100 flex justify-between items-center mb-4">
+                            <span className="text-sm font-bold text-red-800">환불 예정 금액</span>
+                            <span className="text-xl font-black text-red-600">{calculateCancelAmount().toLocaleString()}원</span>
+                        </div>
+
+                        <div className="mb-6">
+                            <input type="text" className="w-full border border-gray-300 p-2.5 rounded-lg text-sm outline-none focus:border-indigo-500 bg-gray-50 focus:bg-white transition" placeholder="취소 사유 메모 (선택사항)" value={cancelModal.reason} onChange={e=>setCancelModal({...cancelModal, reason: e.target.value})} />
+                        </div>
+                        
+                        <div className="flex gap-2">
+                            <button onClick={handlePartialCancel} disabled={cancelModal.selectedItemIds.length === 0} className="flex-1 bg-red-600 disabled:bg-gray-300 text-white py-3 rounded-xl font-bold shadow-md hover:bg-red-700 transition">선택 메뉴 취소하기</button>
+                            <button onClick={() => setCancelModal({ isOpen: false, order: null, selectedItemIds: [], reason: "" })} className="w-24 bg-gray-200 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-300 transition">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

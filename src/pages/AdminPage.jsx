@@ -10,18 +10,19 @@ import HeadquartersView from "../components/admin/HeadquartersView";
 import AdminMenuManagement from "../components/admin/AdminMenuManagement";
 import StoreNoticeBoard from "../components/admin/StoreNoticeBoard";
 
-// 📦 2. 여러 개 묶어둔 설정 컴포넌트들 몽땅 불러오기! (매출, 유저 추가됨)
+// 📦 2. 여러 개 묶어둔 설정 컴포넌트들 몽땅 불러오기!
 import { 
     AdminStoreInfo, 
     AdminCallOptionManagement, 
     AdminHours, 
     AdminTables,
     AdminSales,
-    AdminUsers
+    AdminUsers,
+    AdminOrders
 } from "../components/admin/StoreSettings";
 
 // ==========================================
-// 1. [직원용] Staff View (너무 작아서 뼈대에 둡니다)
+// 1. [직원용] Staff View 
 // ==========================================
 function StaffView({ user, storeId }) {
     const navigate = useNavigate();
@@ -60,7 +61,8 @@ function AdminPage() {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("info");
     
-    // 수신된 안읽은 공지사항 목록 배열
+    // ✨ 사이드바 메뉴 열림/닫힘 상태 관리
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [unreadNotices, setUnreadNotices] = useState([]);
 
     useEffect(() => {
@@ -73,7 +75,6 @@ function AdminPage() {
             .catch(() => { navigate("/"); });
     }, [token, storeId]);
 
-    // 로그인(화면 진입) 시 안읽은 공지 가져오기
     useEffect(() => {
         if (user && ["STORE_OWNER", "STAFF"].includes(user.role)) {
             axios.get(`${API_BASE_URL}/notices/unread`, { headers: { Authorization: `Bearer ${token}` } })
@@ -82,14 +83,11 @@ function AdminPage() {
         }
     }, [user, token]);
 
-    // 공지사항 "확인(읽음)" 처리 함수
     const handleReadNotice = async (noticeId) => {
         try {
             await axios.post(`${API_BASE_URL}/notices/${noticeId}/read`, {}, { headers: { Authorization: `Bearer ${token}` } });
             setUnreadNotices(prev => prev.slice(1));
-        } catch(e) {
-            toast.error("공지사항 확인 처리 중 오류가 발생했습니다.");
-        }
+        } catch(e) { toast.error("공지사항 확인 처리 중 오류가 발생했습니다."); }
     };
 
     const fetchStore = async () => {
@@ -124,15 +122,14 @@ function AdminPage() {
     if (loading || !user) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">🔒 권한 확인 중...</div>;
     if (user.role === "STAFF") return <StaffView user={user} storeId={user.store_id} />;
     
-    // 본사/슈퍼 관리자이고 매장 선택 전이면 HeadquartersView 렌더링
     if (["SUPER_ADMIN", "GROUP_ADMIN", "BRAND_ADMIN"].includes(user.role) && !storeId) return <HeadquartersView user={user} token={token} />;
-    
     if (!store) return <div className="p-10 text-center">매장 정보 로딩중...</div>;
 
     return (
-        <div className="min-h-screen bg-gray-100 flex">
-            {/* 사이드바 */}
-            <div className="w-64 bg-white border-r flex flex-col fixed h-full z-10">
+        <div className="h-screen bg-gray-100 flex overflow-hidden">
+            
+            {/* 사이드바 (isSidebarOpen 상태에 따라 좌우로 슬라이드 이동) */}
+            <div className={`w-64 bg-white border-r flex flex-col fixed h-full z-20 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="p-6 border-b">
                     <h1 className="text-xl font-extrabold text-gray-800 truncate">{store.name}</h1>
                     <p className="text-xs text-gray-500 mt-1 mb-4">{user.role === "GROUP_ADMIN" ? "본사 관리 모드" : "사장님 모드"}</p>
@@ -150,6 +147,7 @@ function AdminPage() {
                 </div>
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
                     <MenuButton icon="📢" label="공지 사항" active={activeTab==="store_notices"} onClick={()=>setActiveTab("store_notices")} />
+                    <MenuButton icon="🧾" label="주문 결제 내역" active={activeTab==="orders"} onClick={()=>setActiveTab("orders")} />
                     <MenuButton icon="🏠" label="영업장 정보" active={activeTab==="info"} onClick={()=>setActiveTab("info")} />
                     <MenuButton icon="🍽️" label="메뉴 관리" active={activeTab==="menu"} onClick={()=>setActiveTab("menu")} />
                     <MenuButton icon="🔔" label="호출 옵션" active={activeTab==="callOptions"} onClick={()=>setActiveTab("callOptions")} />
@@ -171,44 +169,48 @@ function AdminPage() {
                 </div>
             </div>
             
-            {/* ✨ 메인 컨텐츠 영역: 밖에서 가져온 부품들을 조립만 합니다! */}
-            <div className="flex-1 ml-64 p-4 lg:p-6 overflow-y-auto relative">
-                {activeTab === "store_notices" && <StoreNoticeBoard token={token} />}
-                {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} user={user} />}
-                {activeTab === "menu" && <AdminMenuManagement store={store} token={token} fetchStore={fetchStore} user={user} />}
-                {activeTab === "callOptions" && <AdminCallOptionManagement store={store} token={token} />}
-                {activeTab === "hours" && <AdminHours store={store} token={token} fetchStore={fetchStore} />}
-                {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
-                {activeTab === "sales" && <AdminSales store={store} token={token} />}
-                {activeTab === "users" && <AdminUsers store={store} token={token} />}
+            {/* 메인 컨텐츠 영역 (사이드바가 열리면 오른쪽으로 밀려남) */}
+            <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-300 ease-in-out ${isSidebarOpen ? 'ml-64' : 'ml-0'}`}>
                 
-                {/* 🚫 이 부분에 있던 유령 코드 <HQNoticeSend /> 는 삭제되었습니다! */}
+                {/* 상단 햄버거 메뉴 토글 버튼 바 */}
+                <div className="bg-white h-14 border-b flex items-center px-4 shrink-0 shadow-sm z-10">
+                    <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-gray-50 hover:bg-gray-200 rounded-lg text-gray-700 transition focus:outline-none">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
+                    <span className="ml-3 font-bold text-gray-700 text-sm">{isSidebarOpen ? '메뉴 숨기기' : '메뉴 보기'}</span>
+                </div>
+
+                {/* 실제 화면 컨텐츠 렌더링 (자체 스크롤 생성) */}
+                <div className="flex-1 p-4 lg:p-6 overflow-y-auto bg-gray-50 relative">
+                    {activeTab === "store_notices" && <StoreNoticeBoard token={token} />}
+                    {activeTab === "orders" && <AdminOrders store={store} token={token} />}
+                    {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} user={user} />}
+                    {activeTab === "menu" && <AdminMenuManagement store={store} token={token} fetchStore={fetchStore} user={user} />}
+                    {activeTab === "callOptions" && <AdminCallOptionManagement store={store} token={token} />}
+                    {activeTab === "hours" && <AdminHours store={store} token={token} fetchStore={fetchStore} />}
+                    {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
+                    {activeTab === "sales" && <AdminSales store={store} token={token} />}
+                    {activeTab === "users" && <AdminUsers store={store} token={token} />}
+                </div>
             </div>
 
-            {/* 스마트 공지사항 팝업 모달 */}
+            {/* 공지사항 팝업 모달 */}
             {unreadNotices.length > 0 && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden transform animate-slideUp relative">
-                        {unreadNotices.length > 1 && (
-                            <div className="absolute top-4 right-4 bg-yellow-400 text-yellow-900 font-bold text-xs px-3 py-1 rounded-full z-10 shadow-sm animate-pulse">
-                                안 읽은 공지 {unreadNotices.length}개 남음
-                            </div>
-                        )}
-                        <div className="bg-indigo-600 p-5 text-white text-center relative overflow-hidden">
-                            <span className="text-4xl mb-1 block">📢</span>
-                            <h2 className="text-xl font-black">새로운 공지사항 도착</h2>
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white p-8 rounded-2xl w-full max-w-md shadow-2xl">
+                        <div className="flex items-center gap-3 mb-4 text-indigo-600">
+                            <span className="text-3xl">📢</span>
+                            <h3 className="font-extrabold text-2xl">본사 긴급 공지</h3>
                         </div>
-                        <div className="p-8">
-                            <h3 className="text-2xl font-extrabold text-gray-900 mb-4">{unreadNotices[0].title}</h3>
-                            <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-[15px] bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                {unreadNotices[0].content}
-                            </p>
+                        <h4 className="font-bold text-xl text-gray-900 mb-2">{unreadNotices[0].title}</h4>
+                        <div className="bg-gray-50 p-4 rounded-xl text-gray-700 mb-6 min-h-[100px] whitespace-pre-wrap text-sm border border-gray-200">
+                            {unreadNotices[0].content}
                         </div>
-                        <div className="p-4 bg-gray-50">
-                            <button onClick={() => handleReadNotice(unreadNotices[0].id)} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold text-lg hover:bg-black transition shadow-md">
-                                ✅ 확인했습니다
-                            </button>
-                        </div>
+                        <button onClick={() => handleReadNotice(unreadNotices[0].id)} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-indigo-700 shadow-md transition">
+                            확인했습니다
+                        </button>
                     </div>
                 </div>
             )}
@@ -216,10 +218,22 @@ function AdminPage() {
     );
 }
 
-function MenuButton({ icon, label, active, onClick }) {
-    return (
-        <button onClick={onClick} className={`w-full text-left px-4 py-2.5 rounded-lg font-bold text-sm transition flex items-center gap-2 ${active ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}><span>{icon}</span> {label}</button>
-    );
-}
+// ==========================================
+// [컴포넌트] 좌측 사이드바 메뉴 버튼 UI (✨ 이게 빠져있었습니다!)
+// ==========================================
+const MenuButton = ({ icon, label, active, onClick }) => (
+    <button
+        onClick={onClick}
+        className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-all duration-200 ${
+            active 
+                ? "bg-indigo-50 text-indigo-700 shadow-sm" 
+                : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+        }`}
+    >
+        <span className="text-xl">{icon}</span>
+        <span>{label}</span>
+    </button>
+);
+
 
 export default AdminPage;
