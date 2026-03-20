@@ -170,43 +170,100 @@ function OrderPage() {
     const handleOrder = async (e) => {
         e.stopPropagation();
         if (cart.length === 0) return toast.error("장바구니가 비어있습니다.");
+        
+        // 🚨 버튼 잠금 확인 (중복 클릭 방지)
         if (isProcessing.current) return;
-        isProcessing.current = true;
+        isProcessing.current = true; // 🔒 버튼 잠금
 
         const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         
+        // 매장이 후불 정책인지 확인
+        const isPostPayStore = store.payment_policy === "POST_PAY"; 
+
         const itemsData = cart.map(item => ({
             menu_id: item.menuId, 
             quantity: item.quantity,
             options: item.options.map(o => ({ name: o.name, price: o.price })), 
             options_desc: item.options.map(o => o.name).join(", "),
-            price: item.price // 할인이 적용된 최종 가격이 DB로 전송됨
+            price: item.price
         }));
 
         try {
-            const orderRes = await axios.post(`${API_BASE_URL}/orders/`, { store_id: store.id, table_id: tableInfo.id, items: itemsData });
+            // 1. 백엔드로 주문 데이터 전송 (가주문 생성)
+            const orderRes = await axios.post(`${API_BASE_URL}/orders/`, { 
+                store_id: store.id, 
+                table_id: tableInfo.id, 
+                items: itemsData,
+                is_post_pay: isPostPayStore 
+            });
             const tempDailyNumber = orderRes.data.daily_number;
 
-            const { IMP } = window;
-            IMP.init("imp75163120");
+            // ✨ 매장이 [후불]인 경우: 결제창 없이 즉시 완료 처리
+            if (isPostPayStore) {
+                setCompletedOrder(tempDailyNumber); 
+                setCart([]); 
+                setIsCartOpen(false);
+                isProcessing.current = false; // 🔓 버튼 잠금 해제
+                toast.success("주문이 접수되었습니다. 결제는 나갈 때 카운터에서 해주세요!");
+                return;
+            }
 
+            // ✨ 매장이 [선불]인 경우: 포트원 결제창 띄우기 (복구 완료!)
+            const { IMP } = window;
+            if (!IMP) {
+                isProcessing.current = false; // 🔓 에러 시 잠금 해제
+                return toast.error("포트원 결제 모듈을 불러오지 못했습니다.");
+            }
+            
+            IMP.init("imp75163120"); // 포트원 가맹점 식별코드
+
+            // 결제창에 보여줄 주문명 생성 (예: "싸이버거 외 2건")
+            const orderName = cart.length > 1 
+                ? `${cart[0].name} 외 ${cart.length - 1}건` 
+                : cart[0].name;
+
+            // 포트원 결제창 호출
             IMP.request_pay({
-                pg: "html5_inicis", pay_method: "card",
-                merchant_uid: `order_${orderRes.data.id}_${Date.now()}`,
-                name: `${orderRes.data.items[0].menu_name} 외`, amount: totalAmount,
-                m_redirect_url: window.location.href
+                pg: "html5_inicis", 
+                pay_method: "card",
+                merchant_uid: `order_${orderRes.data.id}_${new Date().getTime()}`,
+                name: orderName,
+                amount: totalAmount,
+                buyer_email: "guest@tory.com",
+                buyer_name: "테이블손님",
+                buyer_tel: "010-0000-0000",
+
+                // ✨ [핵심 추가] 모바일 결제 완료 후 잃어버리지 않고 이 테이블로 정확히 돌아오게 하는 옵션!
+                m_redirect_url: `${window.location.origin}/order/${token}`
             }, async (rsp) => {
                 if (rsp.success) {
                     try {
-                        await axios.post(`${API_BASE_URL}/payments/complete`, { imp_uid: rsp.imp_uid, merchant_uid: rsp.merchant_uid });
-                        setCompletedOrder(tempDailyNumber); setCart([]); setIsCartOpen(false);
-                    } catch (err) { toast.error(`결제 검증 실패: ${err.response?.data?.detail || "오류 발생"}`); }
-                } else { toast.error(`결제 실패: ${rsp.error_msg}`); }
-                isProcessing.current = false;
+                        // 결제 성공 시 백엔드에 사후 검증 요청
+                        await axios.post(`${API_BASE_URL}/payments/complete`, {
+                            imp_uid: rsp.imp_uid,
+                            merchant_uid: rsp.merchant_uid
+                        });
+                        
+                        setCompletedOrder(tempDailyNumber);
+                        setCart([]);
+                        setIsCartOpen(false);
+                        toast.success("결제 및 주문이 완료되었습니다!");
+                    } catch (verifyErr) {
+                        console.error("검증 에러:", verifyErr);
+                        toast.error("결제는 되었으나 주문 처리에 실패했습니다. 직원을 호출해주세요.");
+                    }
+                } else {
+                    toast.error(`결제가 취소되었거나 실패했습니다: ${rsp.error_msg}`);
+                }
+                
+                // 🔓 결제 창이 닫히면(성공이든 실패든) 무조건 버튼 잠금 해제
+                isProcessing.current = false; 
             });
+
         } catch (err) { 
+            console.error("주문 생성 에러:", err);
             toast.error(`🚫 주문 불가: ${err.response?.data?.detail || "주문 생성 실패"}`); 
-            isProcessing.current = false;
+            isProcessing.current = false; // 🔓 에러 시 잠금 해제
         }
     };
 

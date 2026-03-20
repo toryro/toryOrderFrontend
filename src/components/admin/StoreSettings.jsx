@@ -20,15 +20,16 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
     const [priceMarkup, setPriceMarkup] = useState(store.price_markup || 0); 
     const [brands, setBrands] = useState([]);
     
-    // ✨ 로열티 관련 상태
     const [royaltyType, setRoyaltyType] = useState(store.royalty_type || "PERCENTAGE"); 
     const [royaltyAmount, setRoyaltyAmount] = useState(store.royalty_amount || 0); 
 
-    // ✨ [신규] 지역 및 직영/가맹 운영 타입 상태
     const [region, setRegion] = useState(store.region || "미지정");
     const [isDirectManage, setIsDirectManage] = useState(store.is_direct_manage || false);
 
-    const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); // 본사 권한 확인
+    // ✨ [신규 추가] 결제 정책 상태 (기본값 PRE_PAY)
+    const [paymentPolicy, setPaymentPolicy] = useState(store.payment_policy || "PRE_PAY");
+
+    const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); 
 
     useEffect(() => {
         axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setBrands(res.data)).catch(()=>{});
@@ -43,10 +44,11 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                     business_number: businessNumber, 
                     brand_id: brandId ? parseInt(brandId) : null,
                     price_markup: parseInt(priceMarkup),
-                    royalty_type: royaltyType,                 // ✨ 로열티 타입 저장
-                    royalty_amount: parseFloat(royaltyAmount), // ✨ 로열티 금액 저장
-                    region: region,                            // ✨ [신규] 지역 정보 저장
-                    is_direct_manage: isDirectManage           // ✨ [신규] 직영/가맹 여부 저장
+                    royalty_type: royaltyType,                 
+                    royalty_amount: parseFloat(royaltyAmount), 
+                    region: region,                            
+                    is_direct_manage: isDirectManage,
+                    payment_policy: paymentPolicy // ✨ [신규] 결제 정책 저장
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -62,6 +64,27 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
                 <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">🏠 기본 정보</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    {/* ✨ [신규 추가] 테이블 결제 방식 설정 (점주, 본사 모두 설정 가능) */}
+                    <div className="col-span-1 md:col-span-2 bg-indigo-50 p-5 rounded-xl border border-indigo-100 mb-2">
+                        <label className="block text-base font-black text-indigo-900 mb-3">
+                            💳 테이블 주문 결제 방식
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <label className={`flex-1 border-2 p-4 rounded-xl cursor-pointer font-bold transition flex items-center gap-3 ${paymentPolicy === 'PRE_PAY' ? 'bg-white border-indigo-500 text-indigo-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                                <input type="radio" name="paymentPolicy" value="PRE_PAY" checked={paymentPolicy === 'PRE_PAY'} onChange={(e) => setPaymentPolicy(e.target.value)} className="w-5 h-5 accent-indigo-600" />
+                                선불 (주문 시 모바일 결제)
+                            </label>
+                            <label className={`flex-1 border-2 p-4 rounded-xl cursor-pointer font-bold transition flex items-center gap-3 ${paymentPolicy === 'POST_PAY' ? 'bg-white border-yellow-500 text-yellow-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                                <input type="radio" name="paymentPolicy" value="POST_PAY" checked={paymentPolicy === 'POST_PAY'} onChange={(e) => setPaymentPolicy(e.target.value)} className="w-5 h-5 accent-yellow-500" />
+                                후불 (나갈 때 카운터 결제)
+                            </label>
+                        </div>
+                        <p className="text-sm text-indigo-600 mt-3 font-bold bg-white p-2 rounded-lg inline-block">
+                            💡 후불 선택 시, 손님은 결제 과정 없이 바로 주문이 접수되며 주방 모니터에 '결제 대기'로 표시됩니다.
+                        </p>
+                    </div>
+
                     <div>
                         <label className="block text-sm font-bold text-gray-600 mb-1">소속 브랜드</label>
                         <select className="w-full border p-3 rounded-lg bg-indigo-50" value={brandId} onChange={e=>setBrandId(e.target.value)} disabled={!isHQ}>
@@ -77,7 +100,6 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                         <input className={`w-full border p-3 rounded-lg ${!isHQ ? "bg-gray-100" : ""}`} type="number" value={priceMarkup} onChange={e=>setPriceMarkup(e.target.value)} disabled={!isHQ} placeholder="예: 강남점 500" />
                     </div>
 
-                    {/* ✨ [신규] 매장 운영 분류 설정 (본사 전용) */}
                     <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
                         <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
                             🗺️ 매장 운영 분류 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
