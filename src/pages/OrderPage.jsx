@@ -26,6 +26,9 @@ function OrderPage() {
     const [completedOrder, setCompletedOrder] = useState(null);
     const isProcessing = useRef(false);
 
+    const [orderType, setOrderType] = useState("DINE_IN"); 
+    const [orderTypeSetting, setOrderTypeSetting] = useState("SELECTABLE");
+
     // ✨ [핵심 함수] 현재 시간이 타임세일 중인지 확인하고 최종 가격을 반환
     const getActivePrice = (menu) => {
         // 1. 할인 설정이 꺼져 있거나 할인가가 없으면 원래 가격 반환
@@ -55,6 +58,14 @@ function OrderPage() {
             try {
                 const res = await axios.get(`${API_BASE_URL}/tables/by-token/${token}`);
                 setTableInfo({ id: res.data.table_id, name: res.data.label });
+                setOrderTypeSetting(res.data.order_type_setting);
+
+                // 만약 테이블이 포장 전용이면 기본값을 포장으로 세팅
+                if (res.data.order_type_setting === "TAKEOUT_ONLY") {
+                    setOrderType("TAKEOUT");
+                } else {
+                    setOrderType("DINE_IN");
+                }
                 
                 const storeRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}`);
                 setStore(storeRes.data);
@@ -194,7 +205,8 @@ function OrderPage() {
                 store_id: store.id, 
                 table_id: tableInfo.id, 
                 items: itemsData,
-                is_post_pay: isPostPayStore 
+                is_post_pay: isPostPayStore,
+                order_type: orderType // ✨ 핵심! 선택한 값 서버로 전송
             });
             const tempDailyNumber = orderRes.data.daily_number;
 
@@ -390,6 +402,30 @@ function OrderPage() {
                             ))}
                         </div>
                         <div className="p-5 bg-white border-t border-gray-200 shrink-0 pb-safe">
+                            
+                            {/* ✨ [여기 추가!] 매장/포장 선택 UI */}
+                            <div className="mb-4">
+                                {orderTypeSetting === "SELECTABLE" && (
+                                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                                        <button 
+                                            onClick={() => setOrderType("DINE_IN")}
+                                            className={`flex-1 py-2 font-bold text-sm rounded-lg transition-colors ${orderType === "DINE_IN" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
+                                        >🍽️ 매장 식사</button>
+                                        <button 
+                                            onClick={() => setOrderType("TAKEOUT")}
+                                            className={`flex-1 py-2 font-bold text-sm rounded-lg transition-colors ${orderType === "TAKEOUT" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
+                                        >🎁 포장하기</button>
+                                    </div>
+                                )}
+                                {orderTypeSetting === "DINE_IN_ONLY" && (
+                                    <div className="text-center py-2 bg-indigo-50 text-indigo-700 rounded-lg font-bold text-sm">🍽️ 매장 식사 전용 테이블입니다.</div>
+                                )}
+                                {orderTypeSetting === "TAKEOUT_ONLY" && (
+                                    <div className="text-center py-2 bg-orange-50 text-orange-700 rounded-lg font-bold text-sm">🎁 포장 전용 주문입니다.</div>
+                                )}
+                            </div>
+                            {/* ✨ 매장/포장 선택 UI 끝 */}
+
                             <div className="flex justify-between items-center mb-4 px-1">
                                 <span className="font-bold text-gray-500">결제 예정 금액</span>
                                 <span className="font-black text-2xl text-red-500">{totalCartPrice.toLocaleString()}원</span>

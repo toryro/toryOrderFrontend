@@ -494,7 +494,16 @@ function KitchenPage() {
                                             #{order.daily_numbers.join(', ')}
                                         </span>
                                     </div>
-                                    <span className="z-10 text-xl font-bold bg-white/10 px-3 py-1.5 rounded-lg border border-white/20 shadow-sm">{order.table_name}</span>
+                                    <div className="z-10 flex items-center gap-2">
+                                        {/* ✨ [신규 추가] 포장 여부 뱃지 */}
+                                        {order.order_type === "TAKEOUT" ? (
+                                            <span className="text-sm font-black bg-orange-500 text-white px-3 py-1.5 rounded-lg shadow-sm animate-pulse">🎁 포장</span>
+                                        ) : (
+                                            <span className="text-sm font-bold bg-indigo-500 text-white px-3 py-1.5 rounded-lg shadow-sm">🍽️ 매장</span>
+                                        )}
+                                        
+                                        <span className="text-xl font-bold bg-white/10 px-3 py-1.5 rounded-lg border border-white/20 shadow-sm">{order.table_name}</span>
+                                    </div>
                                 </div>
                                 
                                 <div className={`p-4 flex-1 overflow-y-auto max-h-[400px] ${isFullyCancelled ? 'bg-red-50/50' : 'bg-slate-50/50'}`}>

@@ -29,6 +29,10 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
     // ✨ [신규 추가] 결제 정책 상태 (기본값 PRE_PAY)
     const [paymentPolicy, setPaymentPolicy] = useState(store.payment_policy || "PRE_PAY");
 
+    // ✨ 값이 아예 없을 때(undefined/null)만 true를 기본값으로 쓰고, 
+    // 점주가 끈 상태(false)라면 false 값을 그대로 가져옵니다.
+    const [useTableBoard, setUseTableBoard] = useState(store?.use_table_board ?? true);
+
     const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); 
 
     useEffect(() => {
@@ -48,7 +52,8 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                     royalty_amount: parseFloat(royaltyAmount), 
                     region: region,                            
                     is_direct_manage: isDirectManage,
-                    payment_policy: paymentPolicy // ✨ [신규] 결제 정책 저장
+                    payment_policy: paymentPolicy, // ✨ [신규] 결제 정책 저장
+                    use_table_board: useTableBoard
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -83,6 +88,23 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                         <p className="text-sm text-indigo-600 mt-3 font-bold bg-white p-2 rounded-lg inline-block">
                             💡 후불 선택 시, 손님은 결제 과정 없이 바로 주문이 접수되며 주방 모니터에 '결제 대기'로 표시됩니다.
                         </p>
+                        
+                        {/* ✨ [수정 완료] 테이블 현황판 사용 설정 */}
+                        <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-indigo-200 mt-4 shadow-sm">
+                            <div>
+                                <h4 className="font-bold text-gray-800">📊 테이블 현황판 (홀 모니터) 사용</h4>
+                                <p className="text-xs text-gray-500 mt-1">홀 직원을 위한 실시간 테이블 상태(식사 중, 치우기 등) 모니터 기능을 켭니다.</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only peer"
+                                    checked={useTableBoard} // ✨ storeForm 대신 개별 상태값(useTableBoard) 연결!
+                                    onChange={(e) => setUseTableBoard(e.target.checked)} 
+                                />
+                                <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
                     </div>
 
                     <div>
