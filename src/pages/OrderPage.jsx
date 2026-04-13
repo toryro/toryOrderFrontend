@@ -503,37 +503,75 @@ function OrderPage() {
 
             {/* 메뉴 상세 옵션 모달 */}
             {isModalOpen && selectedMenu && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-md mx-auto rounded-t-3xl p-6 pb-safe animate-slideUp">
-                        <div className="flex justify-between items-center mb-6">
+                <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}>
+                    <div className="bg-white w-full max-w-md mx-auto rounded-t-3xl p-6 pb-safe animate-slideUp flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        
+                        {/* ✨ 1. 상단 타이틀 및 닫기 버튼 */}
+                        <div className="flex justify-between items-center mb-4 shrink-0">
                             <h3 className="text-2xl font-black">{selectedMenu.name}</h3>
-                            <button onClick={() => setIsModalOpen(false)} className="text-gray-400 text-3xl font-light">&times;</button>
+                            <button onClick={() => setIsModalOpen(false)} className="text-gray-400 text-3xl font-light leading-none">&times;</button>
                         </div>
-                        <div className="max-h-[50vh] overflow-y-auto mb-4 space-y-6">
-                            {selectedMenu.option_groups.map(group => (
-                                <div key={group.id}>
-                                    <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                                        {group.name} 
-                                        {group.is_required && <span className="bg-red-100 text-red-600 text-[10px] px-1.5 py-0.5 rounded font-black">필수</span>}
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {group.options.map(opt => {
-                                            const isChecked = selectedOptions.has(opt.id);
-                                            return (
-                                                <label key={opt.id} className={`flex justify-between items-center p-4 border-2 rounded-xl cursor-pointer transition ${isChecked ? 'bg-indigo-50 border-indigo-500' : 'border-gray-100'}`}>
-                                                    <div className="flex items-center gap-3">
-                                                        <input type={group.is_single_select ? "radio" : "checkbox"} checked={isChecked} onChange={() => toggleOption(group, opt.id)} className="w-5 h-5 accent-indigo-600"/>
-                                                        <span className={`font-bold ${isChecked ? 'text-indigo-700' : 'text-gray-700'}`}>{opt.name}</span>
-                                                    </div>
-                                                    <span className={`font-bold ${isChecked ? 'text-indigo-700' : 'text-gray-500'}`}>+{opt.price.toLocaleString()}원</span>
-                                                </label>
-                                            );
-                                        })}
-                                    </div>
+
+                        {/* ✨ 2. 스크롤 영역 시작 (사진 + 설명 + 옵션) */}
+                        <div className="overflow-y-auto overflow-x-hidden flex-1 -mx-2 px-2 pb-4 space-y-6 scrollbar-hide">
+                            
+                            {/* [신규 추가] 메뉴 이미지 (있는 경우만 크게 렌더링) */}
+                            {selectedMenu.image_url && (
+                                <div className="w-full aspect-[4/3] rounded-2xl overflow-hidden bg-gray-100 shadow-inner border border-gray-200">
+                                    <img src={selectedMenu.image_url} className="w-full h-full object-cover" alt={selectedMenu.name} />
                                 </div>
-                            ))}
+                            )}
+
+                            {/* [신규 추가] 가격 및 메뉴 상세 설명 영역 */}
+                            <div>
+                                <p className="text-indigo-600 font-black text-2xl mb-2">{selectedMenu.activePrice.toLocaleString()}원</p>
+                                
+                                {selectedMenu.description && (
+                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                        <p className="text-gray-600 text-sm whitespace-pre-wrap leading-relaxed font-medium">
+                                            {selectedMenu.description}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 기존 옵션 렌더링 영역 (옵션이 있는 경우만 렌더링) */}
+                            {selectedMenu.option_groups?.length > 0 && (
+                                <div className="space-y-6 pt-4 border-t border-gray-100">
+                                    <h4 className="font-extrabold text-lg text-gray-800">추가 옵션 선택</h4>
+                                    {selectedMenu.option_groups.map(group => (
+                                        <div key={group.id} className="bg-white rounded-xl">
+                                            <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                                {group.name} 
+                                                {group.is_required && <span className="bg-red-100 text-red-600 text-[10px] px-1.5 py-0.5 rounded font-black">필수</span>}
+                                            </h4>
+                                            <div className="space-y-2">
+                                                {group.options.map(opt => {
+                                                    const isChecked = selectedOptions.has(opt.id);
+                                                    return (
+                                                        <label key={opt.id} className={`flex justify-between items-center p-4 border-2 rounded-xl cursor-pointer transition ${isChecked ? 'bg-indigo-50 border-indigo-500' : 'border-gray-100 hover:border-indigo-200'}`}>
+                                                            <div className="flex items-center gap-3">
+                                                                <input type={group.is_single_select ? "radio" : "checkbox"} checked={isChecked} onChange={() => toggleOption(group, opt.id)} className="w-5 h-5 accent-indigo-600 cursor-pointer"/>
+                                                                <span className={`font-bold ${isChecked ? 'text-indigo-700' : 'text-gray-700'}`}>{opt.name}</span>
+                                                            </div>
+                                                            <span className={`font-bold ${isChecked ? 'text-indigo-700' : 'text-gray-500'}`}>+{opt.price.toLocaleString()}원</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                        <button onClick={handleConfirmOptions} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg active:bg-indigo-700 shadow-xl">옵션 선택 완료</button>
+
+                        {/* ✨ 3. 하단 장바구니 담기 버튼 (항상 고정) */}
+                        <div className="pt-4 shrink-0 border-t border-gray-100 bg-white">
+                            <button onClick={handleConfirmOptions} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-extrabold text-lg hover:bg-indigo-700 active:scale-[0.98] transition shadow-xl flex items-center justify-center gap-2">
+                                <span>🛒</span> 
+                                {selectedMenu.option_groups?.length > 0 ? "이대로 장바구니 담기" : "장바구니 담기"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -557,3 +595,26 @@ function OrderPage() {
 }
 
 export default OrderPage;
+
+// 메뉴 클릭 시 실행되는 로직
+const handleMenuClick = (menu, currentPrice) => {
+    if (menu.is_sold_out) return;
+
+    // ✨ 점주 설정이 '상세페이지 사용'이거나, 옵션이 있는 경우 무조건 모달 오픈
+    if (store.use_menu_detail || (menu.option_groups && menu.option_groups.length > 0)) {
+        setSelectedMenu({ ...menu, activePrice: currentPrice });
+        setSelectedOptions(new Set());
+        setIsModalOpen(true);
+    } else {
+        // 상세페이지 미사용 + 옵션 없음 -> 바로 장바구니행
+        const existingItem = cart.find(item => item.menuId === menu.id && item.options.length === 0);
+        if (existingItem) {
+            updateQuantity(existingItem.id, 1);
+            toast.success(`${menu.name} 수량이 추가되었습니다.`);
+        } else {
+            const newItem = { id: Date.now(), menuId: menu.id, name: menu.name, price: currentPrice, quantity: 1, options: [] };
+            setCart(prev => [...prev, newItem]);
+            toast.success(`${selectedMenu.name}이(가) 담겼습니다.`);
+        }
+    }
+};

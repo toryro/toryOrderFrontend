@@ -5,39 +5,66 @@ import toast from "react-hot-toast";
 
 // 1. 영업장 정보 관리
 export function AdminStoreInfo({ store, token, fetchStore, user }) { 
-    const [name, setName] = useState(store.name);
-    const [address, setAddress] = useState(store.address || "");
-    const [phone, setPhone] = useState(store.phone || "");
-    const [desc, setDesc] = useState(store.description || "");
-    const [notice, setNotice] = useState(store.notice || "");
-    const [originInfo, setOriginInfo] = useState(store.origin_info || "");
-    const [ownerName, setOwnerName] = useState(store.owner_name || "");
-    const [businessName, setBusinessName] = useState(store.business_name || "");
-    const [businessAddress, setBusinessAddress] = useState(store.business_address || "");
-    const [businessNumber, setBusinessNumber] = useState(store.business_number || "");
+    const [name, setName] = useState(store?.name || "");
+    const [address, setAddress] = useState(store?.address || "");
+    const [phone, setPhone] = useState(store?.phone || "");
+    const [desc, setDesc] = useState(store?.description || "");
+    const [notice, setNotice] = useState(store?.notice || "");
+    const [originInfo, setOriginInfo] = useState(store?.origin_info || "");
+    const [ownerName, setOwnerName] = useState(store?.owner_name || "");
+    const [businessName, setBusinessName] = useState(store?.business_name || "");
+    const [businessAddress, setBusinessAddress] = useState(store?.business_address || "");
+    const [businessNumber, setBusinessNumber] = useState(store?.business_number || "");
     
-    const [brandId, setBrandId] = useState(store.brand_id || "");
-    const [priceMarkup, setPriceMarkup] = useState(store.price_markup || 0); 
+    const [brandId, setBrandId] = useState(store?.brand_id || "");
+    const [priceMarkup, setPriceMarkup] = useState(store?.price_markup || 0); 
     const [brands, setBrands] = useState([]);
     
-    const [royaltyType, setRoyaltyType] = useState(store.royalty_type || "PERCENTAGE"); 
-    const [royaltyAmount, setRoyaltyAmount] = useState(store.royalty_amount || 0); 
+    const [royaltyType, setRoyaltyType] = useState(store?.royalty_type || "PERCENTAGE"); 
+    const [royaltyAmount, setRoyaltyAmount] = useState(store?.royalty_amount || 0); 
 
-    const [region, setRegion] = useState(store.region || "미지정");
-    const [isDirectManage, setIsDirectManage] = useState(store.is_direct_manage || false);
+    const [region, setRegion] = useState(store?.region || "미지정");
+    const [isDirectManage, setIsDirectManage] = useState(store?.is_direct_manage || false);
 
-    // ✨ [신규 추가] 결제 정책 상태 (기본값 PRE_PAY)
-    const [paymentPolicy, setPaymentPolicy] = useState(store.payment_policy || "PRE_PAY");
-
-    // ✨ 값이 아예 없을 때(undefined/null)만 true를 기본값으로 쓰고, 
-    // 점주가 끈 상태(false)라면 false 값을 그대로 가져옵니다.
+    const [paymentPolicy, setPaymentPolicy] = useState(store?.payment_policy || "PRE_PAY");
     const [useTableBoard, setUseTableBoard] = useState(store?.use_table_board ?? true);
+    const [useMenuDetail, setUseMenuDetail] = useState(store?.use_menu_detail ?? false);
 
     const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); 
 
+    // ✨ [핵심 수정] 서버에서 store 데이터가 새로고침 될 때마다 화면 상태(State)를 동기화합니다!
     useEffect(() => {
-        axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setBrands(res.data)).catch(()=>{});
-    }, []);
+        if (store) {
+            setName(store.name || "");
+            setAddress(store.address || "");
+            setPhone(store.phone || "");
+            setDesc(store.description || "");
+            setNotice(store.notice || "");
+            setOriginInfo(store.origin_info || "");
+            setOwnerName(store.owner_name || "");
+            setBusinessName(store.business_name || "");
+            setBusinessAddress(store.business_address || "");
+            setBusinessNumber(store.business_number || "");
+            setBrandId(store.brand_id || "");
+            setPriceMarkup(store.price_markup || 0);
+            setRoyaltyType(store.royalty_type || "PERCENTAGE");
+            setRoyaltyAmount(store.royalty_amount || 0);
+            setRegion(store.region || "미지정");
+            setIsDirectManage(store.is_direct_manage || false);
+            
+            // 토글 및 라디오 버튼 동기화
+            setPaymentPolicy(store.payment_policy || "PRE_PAY");
+            setUseTableBoard(store.use_table_board ?? true);
+            setUseMenuDetail(store.use_menu_detail ?? false);
+        }
+    }, [store]);
+
+    // 기존 브랜드 목록 가져오기
+    useEffect(() => {
+        axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } })
+            .then(res => setBrands(res.data))
+            .catch(()=>{});
+    }, [token]);
 
     const handleSave = async () => {
         try {
@@ -52,13 +79,14 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                     royalty_amount: parseFloat(royaltyAmount), 
                     region: region,                            
                     is_direct_manage: isDirectManage,
-                    payment_policy: paymentPolicy, // ✨ [신규] 결제 정책 저장
+                    payment_policy: paymentPolicy,
+                    use_menu_detail: useMenuDetail,
                     use_table_board: useTableBoard
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             toast.success("가게 정보가 성공적으로 저장되었습니다."); 
-            fetchStore();
+            fetchStore(); // 저장 후 DB 데이터를 다시 불러옴 -> 위의 useEffect가 실행되면서 화면 최신화!
         } catch(err) { 
             toast.error("저장 실패"); 
         }
@@ -101,6 +129,22 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                                     className="sr-only peer"
                                     checked={useTableBoard} // ✨ storeForm 대신 개별 상태값(useTableBoard) 연결!
                                     onChange={(e) => setUseTableBoard(e.target.checked)} 
+                                />
+                                <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                        {/* 테이블 현황판 설정 아래에 추가 */}
+                        <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-indigo-200 mt-2 shadow-sm">
+                            <div>
+                                <h4 className="font-bold text-gray-800">🖼️ 메뉴 상세 페이지 사용</h4>
+                                <p className="text-xs text-gray-500 mt-1">메뉴 클릭 시 바로 담지 않고 설명과 사진이 있는 상세 페이지를 보여줍니다.</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only peer"
+                                    checked={useMenuDetail}
+                                    onChange={(e) => setUseMenuDetail(e.target.checked)} 
                                 />
                                 <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-indigo-600"></div>
                             </label>
