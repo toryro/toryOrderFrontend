@@ -124,6 +124,44 @@ function OrderPage() {
         }
     }, [location, token, navigate]);
 
+    // =========================================================
+    // ✨ 세션 만료 (비활동 감지) 타이머
+    // =========================================================
+    useEffect(() => {
+        let timeoutId;
+        // 💡 30분 = 20 * 60 * 1000 밀리초 (테스트하실 때는 10 * 1000 등 10초로 줄여서 해보세요)
+        const SESSION_TIMEOUT_MS = 20 * 60 * 1000; 
+
+        const resetTimer = () => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                // ⏰ 지정된 시간 동안 아무 조작이 없었을 때 실행될 로직
+                toast.error("장시간 활동이 없어 안전을 위해 주문 화면이 초기화되었습니다.");
+                setCart([]); // 장바구니 비우기
+                setIsCartOpen(false);
+                setSelectedOptions(new Set());
+                
+                // 완전히 초기화하기 위해 페이지를 새로고침 (선택 사항)
+                window.location.reload(); 
+            }, SESSION_TIMEOUT_MS);
+        };
+
+        // 사용자 활동을 감지할 이벤트 목록 (터치, 스크롤, 클릭 등)
+        const events = ['touchstart', 'click', 'scroll', 'mousemove', 'keydown'];
+        
+        // 이벤트 리스너 등록
+        events.forEach(event => window.addEventListener(event, resetTimer));
+
+        // 컴포넌트 마운트 시 최초 타이머 시작
+        resetTimer();
+
+        // 컴포넌트 언마운트 시 정리(Clean-up)하여 메모리 누수 방지
+        return () => {
+            events.forEach(event => window.removeEventListener(event, resetTimer));
+            clearTimeout(timeoutId);
+        };
+    }, []);
+
     const handleStaffCall = async (message) => {
         try {
             await axios.post(`${API_BASE_URL}/stores/${store.id}/calls`, { table_id: tableInfo.id, message: message });
