@@ -107,74 +107,78 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-bold text-gray-600 mb-1">소속 브랜드</label>
-                        <select className="w-full border p-3 rounded-lg bg-indigo-50" value={brandId} onChange={e=>setBrandId(e.target.value)} disabled={!isHQ}>
-                            <option value="">독립 매장</option>
-                            {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-bold text-gray-600 mb-1 flex justify-between">
-                            지점 기본 가격 할증 (원) {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
-                        </label>
-                        <input className={`w-full border p-3 rounded-lg ${!isHQ ? "bg-gray-100" : ""}`} type="number" value={priceMarkup} onChange={e=>setPriceMarkup(e.target.value)} disabled={!isHQ} placeholder="예: 강남점 500" />
-                    </div>
-
-                    <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
-                        <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
-                            🗺️ 매장 운영 분류 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
-                        </label>
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <select 
-                                className={`w-full sm:w-1/3 border p-3 rounded-lg font-bold ${!isHQ ? "bg-gray-100" : "bg-white"}`} 
-                                value={region} onChange={e=>setRegion(e.target.value)} disabled={!isHQ}
-                            >
-                                <option value="미지정">지역 선택 안함</option>
-                                <option value="서울">서울</option>
-                                <option value="경기">경기</option>
-                                <option value="인천">인천</option>
-                                <option value="강원">강원</option>
-                                <option value="충청">충청</option>
-                                <option value="전라">전라</option>
-                                <option value="경상">경상</option>
-                                <option value="부산">부산</option>
-                                <option value="제주">제주</option>
-                            </select>
-                            <select 
-                                className={`w-full sm:w-2/3 border p-3 rounded-lg font-bold ${!isHQ ? "bg-gray-100" : "text-indigo-700 bg-indigo-50"}`} 
-                                value={isDirectManage} onChange={e=>setIsDirectManage(e.target.value === 'true')} disabled={!isHQ}
-                            >
-                                <option value={false}>🤝 가맹점 (Franchise)</option>
-                                <option value={true}>🏢 본사 직영점 (Direct)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
-                        <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
-                            👑 본사 로열티 (수수료) 정책 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
-                        </label>
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <select 
-                                className={`border p-3 rounded-lg flex-1 font-bold ${!isHQ ? "bg-gray-100" : "bg-white"}`}
-                                value={royaltyType} onChange={e=>setRoyaltyType(e.target.value)} disabled={!isHQ}
-                            >
-                                <option value="PERCENTAGE">매출 비례 방식 (%)</option>
-                                <option value="FIXED">고정 금액 방식 (원)</option>
-                            </select>
-                            <div className="flex-1 relative">
-                                <input 
-                                    className={`w-full border p-3 rounded-lg text-right pr-8 font-bold ${!isHQ ? "bg-gray-100" : ""}`} 
-                                    type="number" step={royaltyType === "PERCENTAGE" ? "0.1" : "1000"} 
-                                    value={royaltyAmount} onChange={e=>setRoyaltyAmount(e.target.value)} disabled={!isHQ} 
-                                    placeholder={royaltyType === "PERCENTAGE" ? "예: 3.5" : "예: 300000"} 
-                                />
-                                <span className="absolute right-3 top-3.5 text-gray-400 font-bold">{royaltyType === "PERCENTAGE" ? "%" : "원"}</span>
+                    {isHQ && (
+                        <>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-600 mb-1">소속 브랜드</label>
+                                <select className="w-full border p-3 rounded-lg bg-indigo-50" value={brandId} onChange={e=>setBrandId(e.target.value)} disabled={!isHQ}>
+                                    <option value="">독립 매장</option>
+                                    {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                                </select>
                             </div>
-                        </div>
-                    </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-600 mb-1 flex justify-between">
+                                    지점 기본 가격 할증 (원) {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                                </label>
+                                <input className={`w-full border p-3 rounded-lg ${!isHQ ? "bg-gray-100" : ""}`} type="number" value={priceMarkup} onChange={e=>setPriceMarkup(e.target.value)} disabled={!isHQ} placeholder="예: 강남점 500" />
+                            </div>
+
+                            <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
+                                <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
+                                    🗺️ 매장 운영 분류 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                                </label>
+                                <div className="flex flex-col sm:flex-row gap-4">
+                                    <select 
+                                        className={`w-full sm:w-1/3 border p-3 rounded-lg font-bold ${!isHQ ? "bg-gray-100" : "bg-white"}`} 
+                                        value={region} onChange={e=>setRegion(e.target.value)} disabled={!isHQ}
+                                    >
+                                        <option value="미지정">지역 선택 안함</option>
+                                        <option value="서울">서울</option>
+                                        <option value="경기">경기</option>
+                                        <option value="인천">인천</option>
+                                        <option value="강원">강원</option>
+                                        <option value="충청">충청</option>
+                                        <option value="전라">전라</option>
+                                        <option value="경상">경상</option>
+                                        <option value="부산">부산</option>
+                                        <option value="제주">제주</option>
+                                    </select>
+                                    <select 
+                                        className={`w-full sm:w-2/3 border p-3 rounded-lg font-bold ${!isHQ ? "bg-gray-100" : "text-indigo-700 bg-indigo-50"}`} 
+                                        value={isDirectManage} onChange={e=>setIsDirectManage(e.target.value === 'true')} disabled={!isHQ}
+                                    >
+                                        <option value={false}>🤝 가맹점 (Franchise)</option>
+                                        <option value={true}>🏢 본사 직영점 (Direct)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="col-span-1 md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2">
+                                <label className="block text-sm font-bold text-gray-800 mb-2 flex justify-between">
+                                    👑 본사 로열티 (수수료) 정책 설정 {!isHQ && <span className="text-red-500 text-xs">본사 전용</span>}
+                                </label>
+                                <div className="flex flex-col sm:flex-row gap-4">
+                                    <select 
+                                        className={`border p-3 rounded-lg flex-1 font-bold ${!isHQ ? "bg-gray-100" : "bg-white"}`}
+                                        value={royaltyType} onChange={e=>setRoyaltyType(e.target.value)} disabled={!isHQ}
+                                    >
+                                        <option value="PERCENTAGE">매출 비례 방식 (%)</option>
+                                        <option value="FIXED">고정 금액 방식 (원)</option>
+                                    </select>
+                                    <div className="flex-1 relative">
+                                        <input 
+                                            className={`w-full border p-3 rounded-lg text-right pr-8 font-bold ${!isHQ ? "bg-gray-100" : ""}`} 
+                                            type="number" step={royaltyType === "PERCENTAGE" ? "0.1" : "1000"} 
+                                            value={royaltyAmount} onChange={e=>setRoyaltyAmount(e.target.value)} disabled={!isHQ} 
+                                            placeholder={royaltyType === "PERCENTAGE" ? "예: 3.5" : "예: 300000"} 
+                                        />
+                                        <span className="absolute right-3 top-3.5 text-gray-400 font-bold">{royaltyType === "PERCENTAGE" ? "%" : "원"}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     <div className="col-span-2"><label className="block text-sm font-bold text-gray-600 mb-1">가게 이름</label><input className="w-full border p-3 rounded-lg" value={name} onChange={e=>setName(e.target.value)} /></div>
                     <div><label className="block text-sm font-bold text-gray-600 mb-1">전화번호</label><input className="w-full border p-3 rounded-lg" value={phone} onChange={e=>setPhone(e.target.value)} /></div>

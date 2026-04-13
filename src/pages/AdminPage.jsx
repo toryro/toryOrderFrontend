@@ -21,6 +21,21 @@ import {
     AdminOrders
 } from "../components/admin/StoreSettings";
 
+
+const MENU_ITEMS = [
+    { id: "store_notices", icon: "📢", label: "공지 사항", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "orders", icon: "🧾", label: "주문 결제 내역", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "info", icon: "🏠", label: "영업장 정보", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "menu", icon: "🍽️", label: "메뉴 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "callOptions", icon: "🔔", label: "호출 옵션", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "hours", icon: "⏰", label: "영업 시간", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "tables", icon: "🪑", label: "테이블 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "sales", icon: "💰", label: "매출 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    
+    // 💡 예시: '계정 관리'를 본사(SUPER_ADMIN, BRAND_ADMIN, GROUP_ADMIN)만 보게 하려면 아래처럼 STORE_OWNER를 빼면 됩니다.
+    { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] } 
+];
+
 // ==========================================
 // 1. [직원용] Staff View 
 // ==========================================
@@ -61,7 +76,7 @@ function AdminPage() {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("info");
     
-    // ✨ 사이드바 메뉴 열림/닫힘 상태 관리
+    // 사이드바 메뉴 열림/닫힘 상태 관리
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [unreadNotices, setUnreadNotices] = useState([]);
 
@@ -125,10 +140,12 @@ function AdminPage() {
     if (["SUPER_ADMIN", "GROUP_ADMIN", "BRAND_ADMIN"].includes(user.role) && !storeId) return <HeadquartersView user={user} token={token} />;
     if (!store) return <div className="p-10 text-center">매장 정보 로딩중...</div>;
 
+    // ✨ 2. 현재 로그인한 사용자의 권한이 있는 메뉴만 쏙 골라냅니다!
+    const visibleMenus = MENU_ITEMS.filter(menu => menu.roles.includes(user.role));
+
     return (
         <div className="h-screen bg-gray-100 flex overflow-hidden">
             
-            {/* 사이드바 (isSidebarOpen 상태에 따라 좌우로 슬라이드 이동) */}
             <div className={`w-64 bg-white border-r flex flex-col fixed h-full z-20 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="p-6 border-b">
                     <h1 className="text-xl font-extrabold text-gray-800 truncate">{store.name}</h1>
@@ -145,16 +162,18 @@ function AdminPage() {
 
                     {["GROUP_ADMIN", "SUPER_ADMIN", "BRAND_ADMIN"].includes(user.role) && (<button onClick={() => navigate("/admin")} className="text-xs text-indigo-600 font-bold mt-4 hover:underline block w-full text-left">← 본사 대시보드</button>)}
                 </div>
+                
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                    <MenuButton icon="📢" label="공지 사항" active={activeTab==="store_notices"} onClick={()=>setActiveTab("store_notices")} />
-                    <MenuButton icon="🧾" label="주문 결제 내역" active={activeTab==="orders"} onClick={()=>setActiveTab("orders")} />
-                    <MenuButton icon="🏠" label="영업장 정보" active={activeTab==="info"} onClick={()=>setActiveTab("info")} />
-                    <MenuButton icon="🍽️" label="메뉴 관리" active={activeTab==="menu"} onClick={()=>setActiveTab("menu")} />
-                    <MenuButton icon="🔔" label="호출 옵션" active={activeTab==="callOptions"} onClick={()=>setActiveTab("callOptions")} />
-                    <MenuButton icon="⏰" label="영업 시간" active={activeTab==="hours"} onClick={()=>setActiveTab("hours")} />
-                    <MenuButton icon="🪑" label="테이블 관리" active={activeTab==="tables"} onClick={()=>setActiveTab("tables")} />
-                    <MenuButton icon="💰" label="매출 관리" active={activeTab==="sales"} onClick={()=>setActiveTab("sales")} />
-                    <MenuButton icon="👤" label="계정 관리" active={activeTab==="users"} onClick={()=>setActiveTab("users")} />
+                    {/* ✨ 3. 권한이 확인된 메뉴들만 렌더링합니다 */}
+                    {visibleMenus.map(menu => (
+                        <MenuButton 
+                            key={menu.id}
+                            icon={menu.icon} 
+                            label={menu.label} 
+                            active={activeTab === menu.id} 
+                            onClick={() => setActiveTab(menu.id)} 
+                        />
+                    ))}
                     
                     <div className="pt-3 mt-3 border-t border-gray-100">
                         <a href={`/kitchen/${store.id}`} target="_blank" rel="noopener noreferrer" className="w-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 text-sm">
@@ -162,6 +181,7 @@ function AdminPage() {
                         </a>
                     </div>
                 </nav>
+                
                 <div className="p-4 border-t">
                     <button onClick={handleLogout} className="w-full text-left text-sm text-red-500 hover:bg-red-50 px-4 py-3 rounded-lg font-bold transition flex items-center gap-2">
                         🚪 로그아웃
@@ -169,10 +189,8 @@ function AdminPage() {
                 </div>
             </div>
             
-            {/* 메인 컨텐츠 영역 (사이드바가 열리면 오른쪽으로 밀려남) */}
+            {/* 메인 컨텐츠 영역 */}
             <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-300 ease-in-out ${isSidebarOpen ? 'ml-64' : 'ml-0'}`}>
-                
-                {/* 상단 햄버거 메뉴 토글 버튼 바 */}
                 <div className="bg-white h-14 border-b flex items-center px-4 shrink-0 shadow-sm z-10">
                     <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-gray-50 hover:bg-gray-200 rounded-lg text-gray-700 transition focus:outline-none">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -182,8 +200,8 @@ function AdminPage() {
                     <span className="ml-3 font-bold text-gray-700 text-sm">{isSidebarOpen ? '메뉴 숨기기' : '메뉴 보기'}</span>
                 </div>
 
-                {/* 실제 화면 컨텐츠 렌더링 (자체 스크롤 생성) */}
                 <div className="flex-1 p-4 lg:p-6 overflow-y-auto bg-gray-50 relative">
+                    {/* 화면을 그릴 때도 권한 체크를 한 번 더 걸어주는 것이 안전합니다 */}
                     {activeTab === "store_notices" && <StoreNoticeBoard token={token} />}
                     {activeTab === "orders" && <AdminOrders store={store} token={token} />}
                     {activeTab === "info" && <AdminStoreInfo store={store} token={token} fetchStore={fetchStore} user={user} />}
