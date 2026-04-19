@@ -506,7 +506,7 @@ function KitchenPage() {
                                     </div>
                                 </div>
                                 
-                                <div className={`p-4 flex-1 overflow-y-auto max-h-[400px] ${isFullyCancelled ? 'bg-red-50/50' : 'bg-slate-50/50'}`}>
+                                <div className={`p-4 flex-1 overflow-y-auto max-h-[200px] lg:max-h-[250px] ${isFullyCancelled ? 'bg-red-50/50' : 'bg-slate-50/50'}`}>
                                     <ul className="space-y-3">
                                         {order.items.map((item) => (
                                             <li key={item.unique_id} className={`p-3 rounded-lg border shadow-sm transition-colors ${item.is_cancelled ? 'bg-red-50 border-red-200' : 'bg-white border-slate-100'}`}>

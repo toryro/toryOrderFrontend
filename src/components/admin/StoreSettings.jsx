@@ -508,7 +508,7 @@ export function AdminHours({ store, token, fetchStore }) {
                     </div>
                     <input type="text" className="border border-gray-300 p-2 rounded-lg w-full font-bold text-sm min-w-0" placeholder="휴무 사유 (예: 추석 연휴)" value={newHolidayDesc} onChange={e=>setNewHolidayDesc(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleAddHoliday()} />
                 </div>
-                <ul className="space-y-3 overflow-y-auto max-h-[600px] pr-1">
+                <ul className="space-y-3 overflow-y-auto max-h-[300px] xl:max-h-[400px] pr-1">
                     
                     {/* ✨ 날아갔던 휴일 리스트 렌더링 코드가 완벽히 복구되었습니다! */}
                     {validHolidays.map(h => (
@@ -778,7 +778,7 @@ export function AdminSales({ store, token }) {
 
                             {/* --- ⏰ 시간대별 매출 탭 --- */}
                             {activeTab === "hourly" && (
-                                <div className="animate-fadeIn space-y-3 pr-2 max-h-[500px] overflow-y-auto">
+                                <div className="animate-fadeIn space-y-3 pr-2 max-h-[300px] xl:max-h-[400px] overflow-y-auto">
                                     <div className="flex justify-end mb-2">
                                         <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">※ 피크타임(인력 배치) 확인용</span>
                                     </div>
@@ -805,7 +805,7 @@ export function AdminSales({ store, token }) {
 
                             {/* --- 🍔 메뉴별 분석 탭 --- */}
                             {activeTab === "menu" && (
-                                <div className="animate-fadeIn space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                                <div className="animate-fadeIn space-y-4 max-h-[300px] xl:max-h-[400px] overflow-y-auto pr-2">
                                     <div className="flex justify-end mb-2">
                                         <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">※ 매출액 기준 내림차순</span>
                                     </div>
@@ -961,7 +961,7 @@ export function AdminOrders({ store, token }) {
 
     return (
         // ✨ 1. h-full, flex-col, overflow-hidden을 사용하여 바깥쪽 브라우저의 이중 스크롤을 완벽 차단합니다.
-        <div className="bg-white p-4 lg:p-6 rounded-2xl shadow-sm border border-gray-200 animate-fadeIn h-full flex flex-col overflow-hidden">
+        <div className="bg-white p-4 lg:p-6 rounded-2xl shadow-sm border border-gray-200 animate-fadeIn h-[calc(100vh-120px)] flex flex-col overflow-hidden">
             
             {/* 상단 헤더 영역 (shrink-0으로 고정하여 찌그러지지 않게 방어) */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 shrink-0">

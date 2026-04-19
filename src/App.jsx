@@ -8,6 +8,7 @@ import { Toaster } from "react-hot-toast"; // 🔥 1. 라이브러리 임포트
 import LoginPage from "./pages/LoginPage";
 import AdminPage from "./pages/AdminPage";
 import KitchenPage from "./pages/KitchenPage";
+import TableDashboard from "./pages/TableDashboard"; // 테이블 현황판
 import OrderPage from "./pages/OrderPage"; // 모바일 주문 페이지
 
 // === 🛡️ 보호된 라우트 (권한 체크) ===
@@ -99,6 +100,16 @@ function App() {
                     element={
                         <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'GROUP_ADMIN', 'STORE_OWNER', 'STAFF']}>
                             <KitchenPage />
+                        </ProtectedRoute>
+                    } 
+                />
+
+                {/* 5. 실시간 테이블 현황판 (Dashboard) */}
+                <Route 
+                    path="/admin/dashboard/:storeId" 
+                    element={
+                        <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'GROUP_ADMIN', 'STORE_OWNER', 'STAFF']}>
+                            <TableDashboard />
                         </ProtectedRoute>
                     } 
                 />

@@ -176,8 +176,14 @@ function AdminPage() {
                     ))}
                     
                     <div className="pt-3 mt-3 border-t border-gray-100">
+                        {/* 기존 주방 화면 버튼 */}
                         <a href={`/kitchen/${store.id}`} target="_blank" rel="noopener noreferrer" className="w-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 text-sm">
                             <span>🍳</span> 주방 KDS 화면 열기
+                        </a>
+                        
+                        {/* ✨ [여기 추가!] 테이블 현황판 전체화면 버튼 */}
+                        <a href={`/admin/dashboard/${store.id}`} target="_blank" rel="noopener noreferrer" className="w-full bg-slate-800 text-white hover:bg-slate-900 px-4 py-2.5 rounded-lg font-bold shadow-md transition flex items-center gap-2 text-sm">
+                            <span>📊</span> 실시간 현황판 열기
                         </a>
                     </div>
                 </nav>

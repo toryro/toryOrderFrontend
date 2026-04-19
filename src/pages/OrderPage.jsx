@@ -125,40 +125,52 @@ function OrderPage() {
     }, [location, token, navigate]);
 
     // =========================================================
-    // ✨ 세션 만료 (비활동 감지) 타이머
+    // ✨ [강력 버전] 세션 만료 (절대 시간 비교 & 화면 켜짐 감지)
     // =========================================================
     useEffect(() => {
-        let timeoutId;
-        // 💡 30분 = 20 * 60 * 1000 밀리초 (테스트하실 때는 10 * 1000 등 10초로 줄여서 해보세요)
-        const SESSION_TIMEOUT_MS = 20 * 60 * 1000; 
+        const SESSION_TIMEOUT_MS = 20 * 60 * 1000; // 20분
+        let lastActiveTime = Date.now(); // 마지막으로 화면을 조작한 시간
 
-        const resetTimer = () => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => {
-                // ⏰ 지정된 시간 동안 아무 조작이 없었을 때 실행될 로직
-                toast.error("장시간 활동이 없어 안전을 위해 주문 화면이 초기화되었습니다.");
-                setCart([]); // 장바구니 비우기
-                setIsCartOpen(false);
-                setSelectedOptions(new Set());
-                
-                // 완전히 초기화하기 위해 페이지를 새로고침 (선택 사항)
-                window.location.reload(); 
-            }, SESSION_TIMEOUT_MS);
+        // 1. 활동이 있을 때마다 마지막 시간을 현재 시간으로 갱신
+        const updateLastActiveTime = () => {
+            lastActiveTime = Date.now();
         };
 
-        // 사용자 활동을 감지할 이벤트 목록 (터치, 스크롤, 클릭 등)
-        const events = ['touchstart', 'click', 'scroll', 'mousemove', 'keydown'];
-        
-        // 이벤트 리스너 등록
-        events.forEach(event => window.addEventListener(event, resetTimer));
+        // 만료 시 실행할 초기화 로직
+        const executeTimeout = () => {
+            toast.error("장시간 활동이 없어 안전을 위해 주문 화면이 초기화되었습니다.");
+            setCart([]); 
+            setIsCartOpen(false);
+            setSelectedOptions(new Set());
+            window.location.reload(); 
+        };
 
-        // 컴포넌트 마운트 시 최초 타이머 시작
-        resetTimer();
+        // 2. 백그라운드에서도 작동하도록 1분(60초)마다 강제로 시간 차이 검사
+        const checkTimeoutInterval = setInterval(() => {
+            if (Date.now() - lastActiveTime > SESSION_TIMEOUT_MS) {
+                executeTimeout();
+            }
+        }, 60000); 
 
-        // 컴포넌트 언마운트 시 정리(Clean-up)하여 메모리 누수 방지
+        // 3. ✨ [핵심] 스마트폰 화면이 꺼져있다가 다시 켜질 때 즉시 검사!
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                if (Date.now() - lastActiveTime > SESSION_TIMEOUT_MS) {
+                    executeTimeout();
+                }
+            }
+        };
+
+        // 사용자 활동 이벤트 등록
+        const events = ['touchstart', 'click', 'scroll', 'keydown'];
+        events.forEach(event => window.addEventListener(event, updateLastActiveTime));
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // 컴포넌트 언마운트 시 메모리 정리
         return () => {
-            events.forEach(event => window.removeEventListener(event, resetTimer));
-            clearTimeout(timeoutId);
+            events.forEach(event => window.removeEventListener(event, updateLastActiveTime));
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            clearInterval(checkTimeoutInterval);
         };
     }, []);
 
@@ -344,17 +356,22 @@ function OrderPage() {
                                 return (
                                     <div key={menu.id} onClick={() => {
                                         if(menu.is_sold_out) return;
-                                        if(menu.option_groups?.length > 0) {
-                                            // 모달을 띄울 때 할인이 적용된 현재 가격을 통째로 묶어서 전달합니다
+                
+                                        // ✨ [핵심 체크!] 아래 줄에 || store.use_menu_detail 이 들어있는지 확인하세요!
+                                        if(menu.option_groups?.length > 0 || store.use_menu_detail) {
+                                            
+                                            // 상세페이지를 켰거나 옵션이 있다면 무조건 모달창(상세페이지) 띄우기
                                             setSelectedMenu({...menu, activePrice: currentPrice}); 
-                                            setSelectedOptions(new Set()); setIsModalOpen(true);
+                                            setSelectedOptions(new Set()); 
+                                            setIsModalOpen(true);
+                                            
                                         } else {
+                                            // 상세페이지도 끄고 옵션도 없다면 바로 장바구니 담기
                                             const existingItem = cart.find(item => item.menuId === menu.id && item.options.length === 0);
                                             if (existingItem) {
                                                 updateQuantity(existingItem.id, 1);
                                                 toast.success(`${menu.name} 수량이 추가되었습니다.`);
                                             } else {
-                                                // 장바구니에 담을 때 할인된 가격으로 담기!
                                                 const newItem = { id: Date.now(), menuId: menu.id, name: menu.name, price: currentPrice, quantity: 1, options: [] };
                                                 setCart(prev => [...prev, newItem]);
                                                 toast.success(`${menu.name}이(가) 담겼습니다.`);
@@ -506,25 +523,27 @@ function OrderPage() {
                 <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}>
                     <div className="bg-white w-full max-w-md mx-auto rounded-t-3xl p-6 pb-safe animate-slideUp flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                         
-                        {/* ✨ 1. 상단 타이틀 및 닫기 버튼 */}
-                        <div className="flex justify-between items-center mb-4 shrink-0">
-                            <h3 className="text-2xl font-black">{selectedMenu.name}</h3>
-                            <button onClick={() => setIsModalOpen(false)} className="text-gray-400 text-3xl font-light leading-none">&times;</button>
+                        {/* ✨ 1. 상단 닫기 버튼 (우측 상단에 깔끔하게 배치) */}
+                        <div className="flex justify-end mb-2 shrink-0">
+                            <button onClick={() => setIsModalOpen(false)} className="text-gray-400 bg-gray-100 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center text-2xl font-light transition">&times;</button>
                         </div>
 
-                        {/* ✨ 2. 스크롤 영역 시작 (사진 + 설명 + 옵션) */}
-                        <div className="overflow-y-auto overflow-x-hidden flex-1 -mx-2 px-2 pb-4 space-y-6 scrollbar-hide">
+                        {/* ✨ 2. 스크롤 영역 시작 */}
+                        <div className="overflow-y-auto overflow-x-hidden flex-1 -mx-2 px-2 pb-4 space-y-5 scrollbar-hide">
                             
-                            {/* [신규 추가] 메뉴 이미지 (있는 경우만 크게 렌더링) */}
+                            {/* 📸 [수정됨] 메뉴 이미지 (가장 상단에 크고 둥글게 배치) */}
                             {selectedMenu.image_url && (
-                                <div className="w-full aspect-[4/3] rounded-2xl overflow-hidden bg-gray-100 shadow-inner border border-gray-200">
+                                <div className="w-full aspect-[4/3] rounded-2xl overflow-hidden bg-gray-100 shadow-sm border border-gray-100">
                                     <img src={selectedMenu.image_url} className="w-full h-full object-cover" alt={selectedMenu.name} />
                                 </div>
                             )}
 
-                            {/* [신규 추가] 가격 및 메뉴 상세 설명 영역 */}
-                            <div>
-                                <p className="text-indigo-600 font-black text-2xl mb-2">{selectedMenu.activePrice.toLocaleString()}원</p>
+                            {/* 📝 [수정됨] 제목, 가격, 상세 설명 영역 (이미지 바로 아래) */}
+                            <div className="space-y-3">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900">{selectedMenu.name}</h3>
+                                    <p className="text-indigo-600 font-black text-2xl mt-1">{selectedMenu.activePrice.toLocaleString()}원</p>
+                                </div>
                                 
                                 {selectedMenu.description && (
                                     <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
@@ -535,7 +554,7 @@ function OrderPage() {
                                 )}
                             </div>
 
-                            {/* 기존 옵션 렌더링 영역 (옵션이 있는 경우만 렌더링) */}
+                            {/* ⚙️ 기존 옵션 렌더링 영역 (설명 아래에 배치) */}
                             {selectedMenu.option_groups?.length > 0 && (
                                 <div className="space-y-6 pt-4 border-t border-gray-100">
                                     <h4 className="font-extrabold text-lg text-gray-800">추가 옵션 선택</h4>

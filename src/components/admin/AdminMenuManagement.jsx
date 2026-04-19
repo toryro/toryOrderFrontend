@@ -367,7 +367,7 @@ export default function AdminMenuManagement({ store, token, fetchStore, user }) 
             </div>
 
             {/* 오른쪽: 옵션 라이브러리 (이전과 동일하여 내용 축약 없이 원본 그대로 유지) */}
-            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-md border border-gray-300 flex flex-col h-full overflow-hidden">
+            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-md border border-gray-300 flex flex-col h-[calc(100vh-120px)] overflow-hidden">
                 <h2 className="text-lg font-bold mb-3 shrink-0">📚 옵션 관리 라이브러리</h2>
                 
                 <div className="mb-4 bg-gray-50 p-3 rounded-xl shrink-0 border border-gray-200">
@@ -516,7 +516,33 @@ export default function AdminMenuManagement({ store, token, fetchStore, user }) 
                                         </div>
                                     </div>
                                     <div><label className="block text-sm font-bold text-gray-700 mb-1">설명</label><textarea className="border w-full p-2 rounded resize-none" rows="3" value={editingMenu.description || ""} onChange={e=>setEditingMenu({...editingMenu, description: e.target.value})} disabled={!isHQ && editingMenu.is_price_fixed} /></div>
-                                    <div><label className="block text-sm font-bold text-gray-700 mb-1">이미지 URL</label><input className="border w-full p-2 rounded text-sm text-gray-500" value={editingMenu.image_url || ""} disabled placeholder="이미지 변경은 삭제 후 재등록이 필요합니다." /></div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1 flex justify-between">
+                                            메뉴 이미지 {(!isHQ && editingMenu.is_price_fixed) && <span className="text-xs text-red-500 font-bold">본사 고정</span>}
+                                        </label>
+                                        <div className="flex items-center gap-3">
+                                            {/* 현재 이미지 썸네일 미리보기 */}
+                                            <div className="w-14 h-14 bg-gray-100 rounded-lg border border-gray-200 shrink-0 overflow-hidden shadow-inner">
+                                                {editingMenu.image_url ? (
+                                                    <img src={editingMenu.image_url} alt="menu" className="w-full h-full object-cover"/>
+                                                ) : (
+                                                    <span className="flex items-center justify-center h-full text-xs text-gray-400 font-bold">없음</span>
+                                                )}
+                                            </div>
+                                            
+                                            {/* 새 이미지 업로드 인풋 */}
+                                            <div className="flex-1 bg-gray-50 p-2 rounded-lg border border-gray-200">
+                                                <input 
+                                                    type="file" 
+                                                    disabled={!isHQ && editingMenu.is_price_fixed}
+                                                    // ✨ 파일이 선택되면 기존 업로드 함수를 태우고, 완료된 URL을 editingMenu에 바로 덮어씌웁니다!
+                                                    onChange={(e) => handleImageUpload(e, (url) => setEditingMenu({...editingMenu, image_url: url}))} 
+                                                    className="text-sm w-full text-gray-600 font-bold cursor-pointer file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition disabled:opacity-50"
+                                                />
+                                                <p className="text-xs text-gray-400 mt-1 pl-1">새 이미지를 선택하면 자동으로 업로드 및 교체됩니다.</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div className="flex gap-6 pt-2 flex-wrap">
                                         <label className="flex items-center gap-2 cursor-pointer p-2 border rounded hover:bg-gray-50 flex-1 min-w-[120px]"><input type="checkbox" checked={editingMenu.is_sold_out} onChange={e=>setEditingMenu({...editingMenu, is_sold_out: e.target.checked})} className="w-5 h-5 text-red-600"/> <span className="font-bold text-red-600">품절 처리</span></label>
                                         <label className="flex items-center gap-2 cursor-pointer p-2 border rounded hover:bg-gray-50 flex-1 min-w-[120px]"><input type="checkbox" checked={editingMenu.is_hidden} onChange={e=>setEditingMenu({...editingMenu, is_hidden: e.target.checked})} className="w-5 h-5 text-gray-600"/> <span className="font-bold text-gray-600">메뉴 숨김</span></label>
