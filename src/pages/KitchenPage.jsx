@@ -140,7 +140,18 @@ function KitchenPage() {
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            
+    
+            // 1. [신규] 테이블 퇴석(비우기)으로 인한 강제 주문 취소 신호
+            if (data.type === "TABLE_STATUS_CHANGED" && data.message === "CANCEL_PENDING_ORDERS") {
+                // 주방 리스트에서 해당 테이블 주문을 즉시 제거
+                setDbOrders(prev => prev.filter(order => order.table_id !== data.table_id));
+                // 주방 화면(displayOrders)도 동기화를 위해 새로고침
+                fetchInitialData(); 
+                toast.error(`[테이블 ${data.table_id}] 퇴석으로 인해 주문이 취소되었습니다.`, { duration: 5000 });
+                return;
+            }
+
+            // 2. [기존] 기기 간 화면 동기화 및 알람 제어 (유지)
             if (data.type === "SYNC_DISPLAY") {
                 if (data.clientId !== myClientId.current) setDisplayOrders(data.displayOrders);
                 return;
@@ -153,15 +164,29 @@ function KitchenPage() {
                 if (data.clientId !== myClientId.current) setMutedDelays(prev => prev.filter(id => id !== data.displayId));
                 return;
             }
+
+            // 3. [기존+신규] 주문 완료 및 호출 완료 처리
             if (data.type === "ORDER_COMPLETED") {
+                // 내 화면에서 해당 주문 제거 및 데이터 최신화
                 setDisplayOrders(prev => prev.filter(o => !o.ref_order_ids.includes(data.order_id)));
+                fetchInitialData(); 
                 return;
             }
             if (data.type === "CALL_COMPLETED") {
                 setStaffCalls(prev => prev.filter(c => c.id !== data.call_id));
                 return;
             }
-            if (["NEW_ORDER", "CANCEL_ORDER", "PARTIAL_CANCEL_ORDER", "NEW_CALL"].includes(data.type)) {
+
+            // 4. [통합] 데이터 재로딩이 필요한 모든 타입들
+            const reloadTypes = [
+                "NEW_ORDER", 
+                "CANCEL_ORDER", 
+                "PARTIAL_CANCEL_ORDER", 
+                "NEW_CALL",
+                "TABLE_STATUS_CHANGED" // 테이블 상태 변경 시에도 안전하게 한 번 더 로드
+            ];
+
+            if (reloadTypes.includes(data.type)) {
                 fetchInitialData(); 
             }
         };
@@ -436,7 +461,6 @@ function KitchenPage() {
                         const m = Math.floor(elapsedSecs / 60).toString().padStart(2, '0');
                         const s = (elapsedSecs % 60).toString().padStart(2, '0');
                         
-                        // 분할 가능 여부 (전체 메뉴 개수가 1개 초과일 때만 분할 버튼 표시)
                         const totalQty = order.items.reduce((sum, item) => sum + (item.is_cancelled ? 0 : parseInt(item.quantity, 10)), 0);
 
                         return (
@@ -452,8 +476,9 @@ function KitchenPage() {
                                     <div className={`px-4 py-3 flex flex-col gap-2 ${isDelayed ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'} border-b border-gray-200 transition-colors`}>
                                         <div className="flex justify-between items-center">
                                             <div className="flex flex-col">
+                                                {/* ✨ [수정 완료] 시간 포맷 에러의 범인을 완벽히 해결했습니다! */}
                                                 <span className={`font-bold text-xs mb-0.5 ${isDelayed ? 'text-red-200' : 'text-gray-500'}`}>
-                                                    🕒 주문 시간: {order.created_at.split(" ")[1].substring(0, 5)}
+                                                    🕒 주문 시간: {new Date(order.created_at.replace(' ', 'T')).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                                                 </span>
                                                 <span className={`font-black tracking-widest text-xl ${isDelayed ? 'animate-pulse text-white' : 'text-indigo-600'}`}>
                                                     경과: {m}분 {s}초
@@ -495,13 +520,11 @@ function KitchenPage() {
                                         </span>
                                     </div>
                                     <div className="z-10 flex items-center gap-2">
-                                        {/* ✨ [신규 추가] 포장 여부 뱃지 */}
                                         {order.order_type === "TAKEOUT" ? (
                                             <span className="text-sm font-black bg-orange-500 text-white px-3 py-1.5 rounded-lg shadow-sm animate-pulse">🎁 포장</span>
                                         ) : (
                                             <span className="text-sm font-bold bg-indigo-500 text-white px-3 py-1.5 rounded-lg shadow-sm">🍽️ 매장</span>
                                         )}
-                                        
                                         <span className="text-xl font-bold bg-white/10 px-3 py-1.5 rounded-lg border border-white/20 shadow-sm">{order.table_name}</span>
                                     </div>
                                 </div>
@@ -530,11 +553,8 @@ function KitchenPage() {
                                     </ul>
                                 </div>
                                 
-                                {/* ✨ [수정 완료] 분할 버튼과 액션 버튼을 나란히(가로) 배치 */}
                                 {!isMergeMode && (
                                     <div className="p-4 border-t bg-white flex gap-2">
-                                        
-                                        {/* ✂️ 분할 버튼 (수량이 2개 이상이면서, '조리 중(COOKING)'일 때만 표시!) */}
                                         {!isFullyCancelled && totalQty > 1 && order.cooking_status === "COOKING" && (
                                             <button 
                                                 onClick={(e) => openSplitModal(order, e)} 
@@ -545,7 +565,6 @@ function KitchenPage() {
                                             </button>
                                         )}
 
-                                        {/* 메인 액션 버튼 (나머지 영역을 모두 채움) */}
                                         {!isFullyCancelled && order.cooking_status === "PENDING" ? (
                                             <button onClick={() => handleStartCooking(order.display_id)} 
                                                 className="flex-1 py-3 rounded-xl font-black text-lg shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900">
@@ -557,7 +576,6 @@ function KitchenPage() {
                                                 {isFullyCancelled ? <><span>취소 확인</span> <span>🗑️</span></> : <><span>조리 완료</span> <span>✅</span></>}
                                             </button>
                                         )}
-
                                     </div>
                                 )}
                             </div>
@@ -579,7 +597,6 @@ function KitchenPage() {
                 </div>
             )}
 
-            {/* ✨ 다중 분할 모달 창 */}
             {splitModal.isOpen && (
                 <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSplitModal({ isOpen: false, order: null, splitSelections: {} })}>
                     <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fadeIn" onClick={e => e.stopPropagation()}>

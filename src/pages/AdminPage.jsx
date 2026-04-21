@@ -33,7 +33,8 @@ const MENU_ITEMS = [
     { id: "sales", icon: "💰", label: "매출 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
     
     // 💡 예시: '계정 관리'를 본사(SUPER_ADMIN, BRAND_ADMIN, GROUP_ADMIN)만 보게 하려면 아래처럼 STORE_OWNER를 빼면 됩니다.
-    { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] } 
+    { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] }, 
+    { id: "hardware", icon: "⚙️", label: "하드웨어 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] }
 ];
 
 // ==========================================

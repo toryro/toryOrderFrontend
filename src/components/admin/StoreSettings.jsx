@@ -31,6 +31,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
     const [useMenuDetail, setUseMenuDetail] = useState(store?.use_menu_detail ?? false);
 
     const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); 
+    const [hasPos, setHasPos] = useState(store?.has_pos || false); // ✨ 신규: POS 사용 여부 상태
 
     // ✨ [핵심 수정] 서버에서 store 데이터가 새로고침 될 때마다 화면 상태(State)를 동기화합니다!
     useEffect(() => {
@@ -81,7 +82,8 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                     is_direct_manage: isDirectManage,
                     payment_policy: paymentPolicy,
                     use_menu_detail: useMenuDetail,
-                    use_table_board: useTableBoard
+                    use_table_board: useTableBoard,
+                    has_pos: hasPos // ✨ 신규: 백엔드로 POS 사용 여부 전송
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -148,6 +150,31 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                                 />
                                 <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-indigo-600"></div>
                             </label>
+                        </div>
+                        {/* ✨ 신규 추가: POS 시스템 연동 설정 UI */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                            <div className="flex items-center gap-3 mb-4">
+                                <span className="text-2xl">🖥️</span>
+                                <div>
+                                    <h3 className="font-extrabold text-lg text-gray-900">POS 시스템 연동 정책</h3>
+                                    <p className="text-xs text-gray-500 font-bold mt-1">매장에 Windows POS기가 있는지 여부에 따라 결제 및 세션 만료 방식이 달라집니다.</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex bg-gray-100 p-1.5 rounded-xl">
+                                <button 
+                                    onClick={() => setHasPos(true)}
+                                    className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${hasPos ? "bg-white text-indigo-700 shadow-md" : "text-gray-500 hover:text-gray-700"}`}
+                                >
+                                    ✅ POS기 사용함 (직원이 퇴석 처리)
+                                </button>
+                                <button 
+                                    onClick={() => setHasPos(false)}
+                                    className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${!hasPos ? "bg-white text-indigo-700 shadow-md" : "text-gray-500 hover:text-gray-700"}`}
+                                >
+                                    📱 POS기 없음 (결제 시 자동 퇴석)
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -1133,6 +1160,122 @@ export function AdminOrders({ store, token }) {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+export function AdminHardwareSettings({ store, token, fetchStore }) {
+    // 1. 하드웨어 관련 상태 관리
+    const [hasPos, setHasPos] = useState(store?.has_pos || false);
+    const [printerConfig, setPrinterConfig] = useState(store?.printer_config || "NONE"); // UNIFIED, SEPARATE, NONE
+    const [autoKitchenPrint, setAutoKitchenPrint] = useState(store?.auto_kitchen_print || false);
+    const [allowStaffOrder, setAllowStaffOrder] = useState(store?.allow_staff_order || true);
+
+    const handleSaveHardware = async () => {
+        try {
+            await axios.patch(`${API_BASE_URL}/stores/${store.id}`, {
+                has_pos: hasPos,
+                printer_config: printerConfig,
+                auto_kitchen_print: autoKitchenPrint,
+                allow_staff_order: allowStaffOrder
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("하드웨어 설정이 저장되었습니다.");
+            fetchStore();
+        } catch (err) {
+            toast.error("설정 저장 실패");
+        }
+    };
+
+    return (
+        <div className="space-y-6 animate-fadeIn">
+            {/* 🖥️ 메인 장비 설정 */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="font-black text-xl mb-4 flex items-center gap-2">
+                    🖥️ 메인 시스템 환경
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <button 
+                        onClick={() => setHasPos(true)}
+                        className={`p-4 rounded-xl border-2 transition-all ${hasPos ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:border-gray-200"}`}
+                    >
+                        <div className="text-2xl mb-2 text-center">💻</div>
+                        <div className="font-bold text-center">표준 POS 시스템</div>
+                        <p className="text-xs text-gray-500 text-center mt-1">Windows POS기를 중심으로<br/>프린터와 리더기를 사용합니다.</p>
+                    </button>
+                    <button 
+                        onClick={() => { setHasPos(false); setPrinterConfig("NONE"); }}
+                        className={`p-4 rounded-xl border-2 transition-all ${!hasPos ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:border-gray-200"}`}
+                    >
+                        <div className="text-2xl mb-2 text-center">📱</div>
+                        <div className="font-bold text-center">모바일/태블릿 전용</div>
+                        <p className="text-xs text-gray-500 text-center mt-1">별도의 POS기 없이<br/>태블릿 화면으로만 운영합니다.</p>
+                    </button>
+                </div>
+            </div>
+
+            {/* 🖨️ 프린터 세부 설정 (POS 사용 시에만 노출) */}
+            {hasPos && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 animate-slideDown">
+                    <h3 className="font-black text-xl mb-4 flex items-center gap-2">
+                        🖨️ 프린터 및 출력 정책
+                    </h3>
+                    <div className="space-y-4">
+                        <div className="flex flex-col gap-2">
+                            <label className="text-sm font-bold text-gray-600">프린터 구성 방식</label>
+                            <select 
+                                value={printerConfig}
+                                onChange={(e) => setPrinterConfig(e.target.value)}
+                                className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 font-bold outline-none focus:border-indigo-500"
+                            >
+                                <option value="NONE">프린터 사용 안 함</option>
+                                <option value="UNIFIED">통합 출력 (영수증 프린터 1대로 주방지까지)</option>
+                                <option value="SEPARATE">분리 출력 (영수증용 + 주방용 각각 있음)</option>
+                            </select>
+                        </div>
+
+                        {printerConfig !== "NONE" && (
+                            <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-xl">
+                                <div>
+                                    <p className="font-bold text-indigo-900">주방 주문서 자동 출력</p>
+                                    <p className="text-xs text-indigo-600">주문 접수 시 프린터에서 즉시 주문서가 나옵니다.</p>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={autoKitchenPrint} 
+                                    onChange={(e) => setAutoKitchenPrint(e.target.checked)}
+                                    className="w-6 h-6 accent-indigo-600"
+                                />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* 👤 운영 편의 설정 */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="font-black text-xl mb-4 flex items-center gap-2">
+                    🛠️ 운영 편의 기능
+                </h3>
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                    <div>
+                        <p className="font-bold text-gray-800">직원 전용 주문 활성화</p>
+                        <p className="text-xs text-gray-500">현황판에서 직원이 직접 주문을 넣을 수 있습니다.</p>
+                    </div>
+                    <input 
+                        type="checkbox" 
+                        checked={allowStaffOrder} 
+                        onChange={(e) => setAllowStaffOrder(e.target.checked)}
+                        className="w-6 h-6 accent-indigo-600"
+                    />
+                </div>
+            </div>
+
+            <button 
+                onClick={handleSaveHardware}
+                className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-indigo-700 transition-all active:scale-95"
+            >
+                설정 저장 및 시스템 반영
+            </button>
         </div>
     );
 }
