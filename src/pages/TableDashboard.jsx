@@ -14,8 +14,11 @@ export function TableDashboard() {
     const [activeOrders, setActiveOrders] = useState([]); 
     const token = localStorage.getItem("token");
 
-    const [selectedTable, setSelectedTable] = useState(null); 
+    const [selectedTable, setSelectedTable] = useState(null);
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+    const [clearModal, setClearModal] = useState({ isOpen: false, tableId: null, tableName: "", pendingOrders: [] });
+    const [takeoutLink, setTakeoutLink] = useState(null);
+    const [takeoutLoading, setTakeoutLoading] = useState(false);
     
     const wsRef = useRef(null);
 
@@ -80,30 +83,20 @@ export function TableDashboard() {
         }
     }, [storeId]);
 
-    const handleClearTable = async (tableId, tableName) => {
-        // 1. 해당 테이블의 미완료 주문 수 확인
-        const unservedOrders = activeOrders.filter(o => o.table_id === tableId && !o.is_completed);
-        const hasPending = unservedOrders.length > 0;
+    const handleClearTable = (tableId, tableName) => {
+        const pendingOrders = activeOrders.filter(o => o.table_id === tableId && !o.is_completed);
+        setClearModal({ isOpen: true, tableId, tableName, pendingOrders });
+    };
 
-        // 2. 기본 경고
-        let confirmMessage = `[${tableName}] 테이블을 비우시겠습니까?\n새로운 QR이 발급됩니다.`;
-        
-        // 3. 🚨 조리 중일 때 강력 경고 추가
-        if (hasPending) {
-            confirmMessage = `⚠️ 경고: [${tableName}]에 아직 조리 중인 주문이 ${unservedOrders.length}건 있습니다!\n\n지금 퇴석 처리하면 주방의 주문도 함께 취소될 수 있습니다.\n정말로 강제 퇴석 처리하시겠습니까?`;
-        }
-
-        if (!window.confirm(confirmMessage)) return;
-
-        // 추가 확인 (실수 방지 쐐기)
-        if (hasPending && !window.confirm("진짜로 비웁니까? 주방에서 이미 요리를 시작했을 수 있습니다.")) return;
-
+    const executeClearTable = async () => {
+        const { tableId, tableName } = clearModal;
+        setClearModal(prev => ({ ...prev, isOpen: false }));
         try {
             await axios.post(`${API_BASE_URL}/tables/${tableId}/clear`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             toast.success(`${tableName} 정리가 완료되었습니다.`, { icon: '🧹' });
-            fetchDashboardData(); 
+            fetchDashboardData();
         } catch (err) {
             toast.error("테이블 초기화에 실패했습니다.");
         }
@@ -112,6 +105,28 @@ export function TableDashboard() {
     const handleOpenOrder = (table) => {
         setSelectedTable(table);
         setIsOrderModalOpen(true);
+    };
+
+    const handleIssueTakeoutLink = async () => {
+        setTakeoutLoading(true);
+        try {
+            const res = await axios.post(
+                `${API_BASE_URL}/stores/${storeId}/virtual-sessions`,
+                {},
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            const url = `${window.location.origin}/order/${res.data.token}`;
+            setTakeoutLink(url);
+        } catch {
+            toast.error("포장 링크 발행에 실패했습니다.");
+        } finally {
+            setTakeoutLoading(false);
+        }
+    };
+
+    const handleCopyTakeoutLink = () => {
+        navigator.clipboard.writeText(takeoutLink);
+        toast.success("링크가 복사되었습니다!");
     };
 
     const getStatusConfig = (status) => {
@@ -149,10 +164,20 @@ export function TableDashboard() {
                             <span>🗺️</span> 홀 테이블 현황판
                         </h1>
                     </div>
-                    <div className="flex items-center gap-4 text-sm font-bold text-gray-500">
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-yellow-400"></span>접수대기</span>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-400"></span>조리중</span>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-400"></span>식사중</span>
+                    <div className="flex items-center gap-3">
+                        <div className="hidden sm:flex items-center gap-3 text-sm font-bold text-gray-500">
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-yellow-400"></span>접수대기</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-400"></span>조리중</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-400"></span>식사중</span>
+                        </div>
+                        <button
+                            onClick={handleIssueTakeoutLink}
+                            disabled={takeoutLoading}
+                            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-md transition active:scale-95"
+                        >
+                            <span className="text-base">🎁</span>
+                            {takeoutLoading ? "발행 중..." : "포장 주문 발행"}
+                        </button>
                     </div>
                 </div>
             </header>
@@ -220,7 +245,7 @@ export function TableDashboard() {
             </div>
 
             {isOrderModalOpen && selectedTable && (
-                <StaffOrderModal 
+                <StaffOrderModal
                     storeId={storeId}
                     table={selectedTable}
                     token={token}
@@ -231,6 +256,125 @@ export function TableDashboard() {
                     }}
                 />
             )}
+
+            {clearModal.isOpen && (
+                <ClearTableModal
+                    tableName={clearModal.tableName}
+                    pendingOrders={clearModal.pendingOrders}
+                    onConfirm={executeClearTable}
+                    onCancel={() => setClearModal(prev => ({ ...prev, isOpen: false }))}
+                />
+            )}
+
+            {takeoutLink && (
+                <div
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    onClick={() => setTakeoutLink(null)}
+                >
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-3 mb-2">
+                            <span className="text-3xl">🎁</span>
+                            <h3 className="font-extrabold text-xl text-gray-800">포장 주문 링크 발행됨</h3>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-4">아래 링크를 고객에게 전달하세요. 결제 완료 후 자동 만료됩니다.</p>
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-4 break-all text-xs font-mono text-gray-600 select-all">
+                            {takeoutLink}
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleCopyTakeoutLink}
+                                className="flex-1 bg-orange-500 text-white py-3 rounded-xl font-bold hover:bg-orange-600 transition active:scale-95"
+                            >
+                                링크 복사
+                            </button>
+                            <a
+                                href={takeoutLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-black transition text-center flex items-center justify-center"
+                            >
+                                새 탭으로 열기
+                            </a>
+                        </div>
+                        <button
+                            onClick={() => setTakeoutLink(null)}
+                            className="w-full mt-3 text-gray-400 text-sm font-bold py-2 hover:text-gray-600 transition"
+                        >
+                            닫기
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+const COOKING_STATUS_LABEL = { PENDING: "접수 대기", COOKING: "조리 중", COMPLETED: "완료" };
+const COOKING_STATUS_COLOR = { PENDING: "bg-yellow-100 text-yellow-700", COOKING: "bg-blue-100 text-blue-700", COMPLETED: "bg-green-100 text-green-700" };
+
+function ClearTableModal({ tableName, pendingOrders, onConfirm, onCancel }) {
+    const hasPending = pendingOrders.length > 0;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+                <div className={`px-6 py-5 ${hasPending ? "bg-red-50 border-b border-red-100" : "bg-gray-50 border-b border-gray-100"}`}>
+                    <div className="flex items-center gap-3">
+                        <span className="text-3xl">{hasPending ? "⚠️" : "🧹"}</span>
+                        <div>
+                            <h3 className="font-black text-lg text-gray-900">{tableName} 퇴석 처리</h3>
+                            {hasPending
+                                ? <p className="text-red-600 font-bold text-sm mt-0.5">아직 처리되지 않은 주문이 {pendingOrders.length}건 있습니다</p>
+                                : <p className="text-gray-500 text-sm mt-0.5">테이블을 비우고 새 QR을 발급합니다</p>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                {hasPending && (
+                    <div className="px-6 py-4 max-h-60 overflow-y-auto space-y-2 border-b border-gray-100">
+                        {pendingOrders.map(order => (
+                            <div key={order.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-xl p-3">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="font-black text-gray-800 text-sm">#{order.daily_number}</span>
+                                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${COOKING_STATUS_COLOR[order.cooking_status] || "bg-gray-100 text-gray-600"}`}>
+                                            {COOKING_STATUS_LABEL[order.cooking_status] || order.cooking_status}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 truncate">
+                                        {order.items?.filter(i => !i.is_cancelled).map(i => `${i.menu_name} ×${i.quantity}`).join(", ")}
+                                    </p>
+                                </div>
+                                <span className="text-sm font-bold text-gray-700 shrink-0">{order.total_price?.toLocaleString()}원</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="px-6 py-4 flex flex-col gap-2">
+                    {hasPending && (
+                        <p className="text-xs text-red-500 font-bold text-center mb-1">
+                            강제 퇴석 시 주방의 해당 주문이 취소됩니다
+                        </p>
+                    )}
+                    <button
+                        onClick={onCancel}
+                        className="w-full py-3 rounded-xl font-bold text-base bg-indigo-600 text-white hover:bg-indigo-700 transition active:scale-95"
+                    >
+                        돌아가기
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        className={`w-full py-3 rounded-xl font-bold text-sm transition active:scale-95 ${hasPending ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                    >
+                        {hasPending ? "주방에 알리고 강제 퇴석" : "퇴석 처리"}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

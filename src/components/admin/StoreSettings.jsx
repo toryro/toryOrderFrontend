@@ -685,91 +685,255 @@ export function AdminTables({ store, token, fetchStore }) {
 
 // 5. 상세 매출 리포트 관리 (일별/월별/시간대별/메뉴별/객단가 분석)
 export function AdminSales({ store, token }) {
-    // 기본 검색 기간을 '최근 7일'로 자동 셋팅합니다.
+    const today = new Date().toISOString().slice(0, 10);
     const [startDate, setStartDate] = useState(() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 7);
+        const d = new Date(); d.setDate(d.getDate() - 6);
         return d.toISOString().slice(0, 10);
     });
-    const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+    const [endDate, setEndDate] = useState(today);
     const [stats, setStats] = useState(null);
-    const [activeTab, setActiveTab] = useState("daily"); // daily, monthly, hourly, menu
+    const [loading, setLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState("daily");
+
+    const setRange = (type) => {
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        if (type === "today") {
+            setStartDate(todayStr); setEndDate(todayStr);
+        } else if (type === "yesterday") {
+            const d = new Date(now); d.setDate(d.getDate() - 1);
+            const s = d.toISOString().slice(0, 10);
+            setStartDate(s); setEndDate(s);
+        } else if (type === "week") {
+            const d = new Date(now); d.setDate(d.getDate() - 6);
+            setStartDate(d.toISOString().slice(0, 10)); setEndDate(todayStr);
+        } else if (type === "month") {
+            setStartDate(`${todayStr.slice(0, 7)}-01`); setEndDate(todayStr);
+        }
+    };
 
     const fetchStats = async () => {
+        setLoading(true);
         try {
-            const res = await axios.get(`${API_BASE_URL}/stores/${store.id}/stats?start_date=${startDate}&end_date=${endDate}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await axios.get(
+                `${API_BASE_URL}/stores/${store.id}/stats?start_date=${startDate}&end_date=${endDate}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
             setStats(res.data);
-        } catch (err) { toast.error("매출 데이터를 불러오는데 실패했습니다."); }
+        } catch { toast.error("매출 데이터를 불러오는데 실패했습니다."); }
+        finally { setLoading(false); }
     };
 
     useEffect(() => { fetchStats(); }, [startDate, endDate]);
 
+    const exportCSV = () => {
+        if (!stats) return;
+        const sections = [
+            ["=== 일별 매출 ===", "날짜,주문건수,매출액"],
+            ...stats.daily_stats.map(d => ["", `${d.date},${d.count},${d.sales}`]),
+            [""],
+            ["=== 요일별 매출 ===", "요일,주문건수,매출액"],
+            ...(stats.weekday_stats || []).map(w => ["", `${w.weekday},${w.count},${w.sales}`]),
+            [""],
+            ["=== 시간대별 매출 ===", "시간,매출액"],
+            ...stats.hourly_stats.map(h => ["", `${h.hour}시,${h.sales}`]),
+            [""],
+            ["=== 메뉴별 매출 ===", "메뉴명,판매수량,매출액"],
+            ...stats.menu_stats.map(m => ["", `${m.name},${m.count},${m.revenue}`]),
+        ];
+        const csv = sections.flat().join("\n");
+        const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `매출리포트_${startDate}_${endDate}.csv`; a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const PAYMENT_METHOD_LABEL = { card: "카드", CARD: "카드", cash: "현금", CASH: "현금", 후불: "후불", 기타: "기타" };
+    const ORDER_TYPE_LABEL = { DINE_IN: "홀", TAKEOUT: "포장" };
+    const WEEKDAY_COLOR = ["bg-indigo-500", "bg-indigo-500", "bg-indigo-500", "bg-indigo-500", "bg-indigo-500", "bg-rose-500", "bg-rose-500"];
+
+    const GrowthBadge = ({ rate }) => {
+        if (rate === null || rate === undefined) return null;
+        const isUp = rate >= 0;
+        return (
+            <span className={`inline-flex items-center gap-0.5 text-xs font-black px-2 py-0.5 rounded-full ml-2 ${isUp ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
+                {isUp ? "▲" : "▼"} {Math.abs(rate)}%
+            </span>
+        );
+    };
+
     return (
         <div className="space-y-6 pb-20 animate-fadeIn">
             {/* 1. 검색 바 */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-2xl font-bold text-gray-800">💰 상세 매출 리포트</h2>
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded-xl">
-                    <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200" />
-                    <span className="text-gray-400 font-bold">~</span>
-                    <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200" />
-                    <button onClick={fetchStats} className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-sm font-bold ml-2 hover:bg-black transition shadow-sm">조회</button>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                    <h2 className="text-xl font-bold text-gray-800">매출 리포트</h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {[["today","오늘"],["yesterday","어제"],["week","최근 7일"],["month","이번달"]].map(([k,l]) => (
+                            <button key={k} onClick={() => setRange(k)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-indigo-100 hover:text-indigo-700 transition">{l}</button>
+                        ))}
+                        <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded-xl">
+                            <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200 text-sm" />
+                            <span className="text-gray-400 font-bold">~</span>
+                            <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200 text-sm" />
+                            <button onClick={fetchStats} className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-sm font-bold ml-1 hover:bg-black transition shadow-sm">조회</button>
+                        </div>
+                        {stats && (
+                            <button onClick={exportCSV} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition">CSV 전체 저장</button>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {stats ? (
+            {loading ? (
+                <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                    <span className="text-4xl mb-4 animate-spin inline-block">⏳</span>
+                    <p className="font-bold">데이터를 집계하고 있습니다...</p>
+                </div>
+            ) : stats ? (
                 <>
-                    {/* 2. 핵심 지표 요약 (객단가 포함) */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-2xl shadow-md relative overflow-hidden">
-                            <p className="text-indigo-200 font-bold mb-1 text-sm">해당 기간 총 매출액</p>
+                    {/* 2. 핵심 지표 요약 */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* 총 매출 */}
+                        <div className="col-span-2 lg:col-span-1 bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-2xl shadow-md relative overflow-hidden">
+                            <p className="text-indigo-200 font-bold mb-1 text-xs">총 매출액 (결제완료)</p>
                             <p className="text-3xl font-black">{stats.total_revenue.toLocaleString()}원</p>
+                            <div className="mt-2 flex items-center">
+                                <span className="text-indigo-300 text-xs">직전 동기 {(stats.prev_period_revenue || 0).toLocaleString()}원</span>
+                                <GrowthBadge rate={stats.growth_rate} />
+                            </div>
                             <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-10">💵</span>
                         </div>
+
+                        {/* 주문건수 */}
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
-                            <p className="text-gray-500 font-bold mb-1 text-sm">해당 기간 총 주문건수</p>
+                            <p className="text-gray-500 font-bold mb-1 text-xs">총 주문건수</p>
                             <p className="text-3xl font-black text-gray-800">{stats.order_count}건</p>
+                            <p className="text-gray-400 text-xs mt-2">직전 동기 {stats.prev_period_count || 0}건</p>
                             <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.03]">🧾</span>
                         </div>
+
+                        {/* 객단가 */}
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
-                            <p className="text-gray-500 font-bold mb-1 text-sm flex items-center gap-1">
-                                1건당 평균 결제액 (객단가) 
+                            <p className="text-gray-500 font-bold mb-1 text-xs flex items-center gap-1">
+                                객단가
                                 <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-md">중요</span>
                             </p>
                             <p className="text-3xl font-black text-indigo-600">{stats.average_order_value.toLocaleString()}원</p>
+                            <p className="text-gray-400 text-xs mt-2">주문당 평균 결제액</p>
                             <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.03]">👥</span>
+                        </div>
+
+                        {/* 취소/환불 또는 후불 미수금 */}
+                        {(stats.cancelled_count > 0 || stats.deferred_revenue > 0) ? (
+                            <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl relative overflow-hidden">
+                                {stats.cancelled_count > 0 ? (
+                                    <>
+                                        <p className="text-rose-700 font-bold mb-1 text-xs">취소 · 환불</p>
+                                        <p className="text-2xl font-black text-rose-600">-{stats.refund_amount.toLocaleString()}원</p>
+                                        <p className="text-rose-400 text-xs mt-2">총 {stats.cancelled_count}건 취소됨</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-amber-700 font-bold mb-1 text-xs">후불 미수금</p>
+                                        <p className="text-2xl font-black text-amber-600">{stats.deferred_revenue.toLocaleString()}원</p>
+                                        <p className="text-amber-400 text-xs mt-2">미결제 후불 주문</p>
+                                    </>
+                                )}
+                                <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.06]">⚠️</span>
+                            </div>
+                        ) : (
+                            <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl relative overflow-hidden">
+                                <p className="text-emerald-700 font-bold mb-1 text-xs">취소 · 환불</p>
+                                <p className="text-2xl font-black text-emerald-600">0건</p>
+                                <p className="text-emerald-400 text-xs mt-2">이 기간 취소 없음</p>
+                                <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.06]">✅</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 3. 결제수단 & 주문유형 분석 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-700 mb-4 text-sm">결제 수단별</h3>
+                            <div className="space-y-3">
+                                {(stats.payment_method_stats || []).map((p, i) => {
+                                    const total = stats.payment_method_stats.reduce((a, b) => a + b.count, 0) || 1;
+                                    const pct = Math.round((p.count / total) * 100);
+                                    return (
+                                        <div key={i}>
+                                            <div className="flex justify-between text-sm mb-1">
+                                                <span className="font-bold text-gray-700">{PAYMENT_METHOD_LABEL[p.method] || p.method}</span>
+                                                <span className="text-gray-500">{p.count}건 · {p.revenue.toLocaleString()}원 <span className="text-indigo-500 font-bold">({pct}%)</span></span>
+                                            </div>
+                                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-indigo-400 rounded-full transition-all duration-700" style={{ width: `${pct}%` }}></div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {(!stats.payment_method_stats || stats.payment_method_stats.length === 0) && <p className="text-gray-400 text-sm text-center py-4">데이터 없음</p>}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-700 mb-4 text-sm">주문 유형별 (홀 / 포장)</h3>
+                            <div className="space-y-3">
+                                {(stats.order_type_stats || []).map((o, i) => {
+                                    const total = stats.order_type_stats.reduce((a, b) => a + b.count, 0) || 1;
+                                    const pct = Math.round((o.count / total) * 100);
+                                    return (
+                                        <div key={i}>
+                                            <div className="flex justify-between text-sm mb-1">
+                                                <span className="font-bold text-gray-700">{ORDER_TYPE_LABEL[o.type] || o.type}</span>
+                                                <span className="text-gray-500">{o.count}건 · {o.revenue.toLocaleString()}원 <span className="text-teal-500 font-bold">({pct}%)</span></span>
+                                            </div>
+                                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-teal-400 rounded-full transition-all duration-700" style={{ width: `${pct}%` }}></div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {(!stats.order_type_stats || stats.order_type_stats.length === 0) && <p className="text-gray-400 text-sm text-center py-4">데이터 없음</p>}
+                            </div>
                         </div>
                     </div>
 
-                    {/* 3. 상세 분석 탭 (Tab) 영역 */}
+                    {/* 4. 상세 분석 탭 */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto scrollbar-hide">
-                            <button onClick={()=>setActiveTab("daily")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="daily" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>📅 일별 매출</button>
-                            <button onClick={()=>setActiveTab("monthly")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="monthly" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>🗓️ 월별 매출</button>
-                            <button onClick={()=>setActiveTab("hourly")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="hourly" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>⏰ 시간대별</button>
-                            <button onClick={()=>setActiveTab("menu")} className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab==="menu" ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>🍔 메뉴별 분석</button>
+                        <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
+                            {[
+                                ["daily",   "📅 일별"],
+                                ["monthly", "🗓️ 월별"],
+                                ["weekday", "📊 요일별"],
+                                ["hourly",  "⏰ 시간대별"],
+                                ["menu",    "🍔 메뉴별"],
+                            ].map(([k, l]) => (
+                                <button key={k} onClick={() => setActiveTab(k)}
+                                    className={`flex-1 py-4 font-bold text-sm transition whitespace-nowrap px-4 ${activeTab === k ? "text-indigo-600 bg-white border-b-2 border-indigo-600" : "text-gray-500 hover:bg-gray-100"}`}>
+                                    {l}
+                                </button>
+                            ))}
                         </div>
 
                         <div className="p-6 min-h-[400px]">
-                            {/* --- 📅 일별 매출 탭 --- */}
+                            {/* 일별 */}
                             {activeTab === "daily" && (
                                 <div className="animate-fadeIn">
                                     <table className="w-full text-left">
                                         <thead>
                                             <tr className="border-b-2 border-gray-200 text-gray-500 text-sm">
-                                                <th className="pb-3 font-bold w-1/3">날짜</th>
-                                                <th className="pb-3 font-bold text-right w-1/3">결제 건수</th>
-                                                <th className="pb-3 font-bold text-right w-1/3">매출액</th>
+                                                <th className="pb-3 font-bold">날짜</th>
+                                                <th className="pb-3 font-bold text-right">결제 건수</th>
+                                                <th className="pb-3 font-bold text-right">매출액</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {stats.daily_stats.map((d, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
-                                                    <td className="py-4 font-bold text-gray-800">{d.date}</td>
-                                                    <td className="py-4 text-right text-gray-600 font-medium">{d.count}건</td>
-                                                    <td className="py-4 text-right font-black text-indigo-600">{d.sales.toLocaleString()}원</td>
+                                                    <td className="py-3 font-bold text-gray-800">{d.date}</td>
+                                                    <td className="py-3 text-right text-gray-600 font-medium">{d.count}건</td>
+                                                    <td className="py-3 text-right font-black text-indigo-600">{d.sales.toLocaleString()}원</td>
                                                 </tr>
                                             ))}
                                             {stats.daily_stats.length === 0 && <tr><td colSpan="3" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
@@ -778,23 +942,23 @@ export function AdminSales({ store, token }) {
                                 </div>
                             )}
 
-                            {/* --- 🗓️ 월별 매출 탭 --- */}
+                            {/* 월별 */}
                             {activeTab === "monthly" && (
                                 <div className="animate-fadeIn">
                                     <table className="w-full text-left">
                                         <thead>
                                             <tr className="border-b-2 border-gray-200 text-gray-500 text-sm">
-                                                <th className="pb-3 font-bold w-1/3">월 (Month)</th>
-                                                <th className="pb-3 font-bold text-right w-1/3">결제 건수</th>
-                                                <th className="pb-3 font-bold text-right w-1/3">매출액</th>
+                                                <th className="pb-3 font-bold">월</th>
+                                                <th className="pb-3 font-bold text-right">결제 건수</th>
+                                                <th className="pb-3 font-bold text-right">매출액</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {stats.monthly_stats.map((m, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
-                                                    <td className="py-4 font-bold text-gray-800">{m.month}</td>
-                                                    <td className="py-4 text-right text-gray-600 font-medium">{m.count}건</td>
-                                                    <td className="py-4 text-right font-black text-indigo-600">{m.sales.toLocaleString()}원</td>
+                                                    <td className="py-3 font-bold text-gray-800">{m.month}</td>
+                                                    <td className="py-3 text-right text-gray-600 font-medium">{m.count}건</td>
+                                                    <td className="py-3 text-right font-black text-indigo-600">{m.sales.toLocaleString()}원</td>
                                                 </tr>
                                             ))}
                                             {stats.monthly_stats.length === 0 && <tr><td colSpan="3" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
@@ -803,67 +967,100 @@ export function AdminSales({ store, token }) {
                                 </div>
                             )}
 
-                            {/* --- ⏰ 시간대별 매출 탭 --- */}
-                            {activeTab === "hourly" && (
-                                <div className="animate-fadeIn space-y-3 pr-2 max-h-[300px] xl:max-h-[400px] overflow-y-auto">
-                                    <div className="flex justify-end mb-2">
-                                        <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">※ 피크타임(인력 배치) 확인용</span>
-                                    </div>
-                                    {stats.hourly_stats.map((h, idx) => {
-                                        // 해당 기간 동안 매출이 발생한 가장 높은 시간대의 금액을 100%로 잡습니다.
-                                        const maxSales = Math.max(...stats.hourly_stats.map(s => s.sales)) || 1;
-                                        const percent = (h.sales / maxSales) * 100;
-                                        const isPeak = percent > 80; // 상위 80% 이상은 피크타임으로 표시
-
-                                        return (
-                                            <div key={idx} className="flex items-center gap-3 text-sm group">
-                                                <span className="w-12 font-bold text-gray-500 text-right">{h.hour}시</span>
-                                                <div className="flex-1 h-6 bg-gray-100 rounded-md overflow-hidden relative">
-                                                    <div className={`h-full transition-all duration-1000 ease-out ${isPeak ? 'bg-red-400' : 'bg-indigo-400'}`} style={{ width: `${percent}%` }}></div>
+                            {/* 요일별 */}
+                            {activeTab === "weekday" && (
+                                <div className="animate-fadeIn">
+                                    <p className="text-xs text-gray-400 font-bold mb-4 text-right">※ 요일별 인력 배치 및 이벤트 기획에 활용하세요</p>
+                                    <div className="space-y-3">
+                                        {(stats.weekday_stats || []).map((w, idx) => {
+                                            const maxSales = Math.max(...(stats.weekday_stats || []).map(x => x.sales)) || 1;
+                                            const pct = (w.sales / maxSales) * 100;
+                                            const isTop = pct === 100;
+                                            return (
+                                                <div key={idx} className="flex items-center gap-3 text-sm">
+                                                    <span className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-sm shadow-sm shrink-0 ${WEEKDAY_COLOR[idx] || "bg-indigo-400"}`}>
+                                                        {w.weekday}
+                                                    </span>
+                                                    <div className="flex-1">
+                                                        <div className="flex justify-between mb-1">
+                                                            <span className="font-bold text-gray-600 text-xs">{w.count}건</span>
+                                                            <span className={`font-black text-sm ${isTop ? "text-indigo-700" : "text-gray-700"}`}>
+                                                                {w.sales.toLocaleString()}원
+                                                                {isTop && <span className="ml-1 text-xs text-yellow-500">★ 최고</span>}
+                                                            </span>
+                                                        </div>
+                                                        <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                                                            <div className={`h-full rounded-full transition-all duration-700 ${WEEKDAY_COLOR[idx] || "bg-indigo-400"}`} style={{ width: `${pct}%` }}></div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <span className={`w-24 text-right font-bold ${isPeak ? 'text-red-600' : 'text-gray-700'}`}>
-                                                    {h.sales.toLocaleString()}원
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             )}
 
-                            {/* --- 🍔 메뉴별 분석 탭 --- */}
-                            {activeTab === "menu" && (
-                                <div className="animate-fadeIn space-y-4 max-h-[300px] xl:max-h-[400px] overflow-y-auto pr-2">
-                                    <div className="flex justify-end mb-2">
-                                        <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">※ 매출액 기준 내림차순</span>
-                                    </div>
-                                    {stats.menu_stats.map((m, idx) => (
-                                        <div key={idx} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-indigo-200 transition">
-                                            <div className="flex items-center gap-4">
-                                                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shadow-sm ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 text-white' : idx === 2 ? 'bg-orange-300 text-white' : 'bg-white text-gray-400 border border-gray-200'}`}>
-                                                    {idx+1}
-                                                </span>
-                                                <div>
-                                                    <p className="font-bold text-gray-800 text-base">{m.name}</p>
-                                                    <p className="text-xs text-gray-500 mt-0.5">{m.count}개 팔림</p>
+                            {/* 시간대별 */}
+                            {activeTab === "hourly" && (
+                                <div className="animate-fadeIn">
+                                    <p className="text-xs text-gray-400 font-bold mb-4 text-right">※ 빨간색 = 피크타임 (최고 대비 80% 이상)</p>
+                                    <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                                        {stats.hourly_stats.map((h, idx) => {
+                                            const maxSales = Math.max(...stats.hourly_stats.map(s => s.sales)) || 1;
+                                            const percent = (h.sales / maxSales) * 100;
+                                            const isPeak = percent > 80 && h.sales > 0;
+                                            return (
+                                                <div key={idx} className="flex items-center gap-3 text-sm group">
+                                                    <span className="w-10 text-right font-bold text-gray-400 text-xs shrink-0">{h.hour}시</span>
+                                                    <div className="flex-1 h-5 bg-gray-100 rounded-md overflow-hidden">
+                                                        <div className={`h-full transition-all duration-700 ease-out rounded-md ${isPeak ? "bg-rose-400" : "bg-indigo-400"}`} style={{ width: `${percent}%` }}></div>
+                                                    </div>
+                                                    <span className={`w-28 text-right font-bold text-xs shrink-0 ${isPeak ? "text-rose-600" : "text-gray-600"}`}>
+                                                        {h.sales > 0 ? h.sales.toLocaleString() + "원" : "-"}
+                                                    </span>
                                                 </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <span className="block font-black text-lg text-indigo-700">{m.revenue.toLocaleString()}원</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {stats.menu_stats.length === 0 && <p className="text-center text-gray-400 py-10 font-bold">결제된 메뉴가 없습니다.</p>}
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 메뉴별 */}
+                            {activeTab === "menu" && (
+                                <div className="animate-fadeIn">
+                                    <p className="text-xs text-gray-400 font-bold mb-4 text-right">※ 매출액 기준 내림차순</p>
+                                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                        {stats.menu_stats.map((m, idx) => {
+                                            const maxRev = stats.menu_stats[0]?.revenue || 1;
+                                            const pct = (m.revenue / maxRev) * 100;
+                                            return (
+                                                <div key={idx} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-indigo-200 transition">
+                                                    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shadow-sm shrink-0 ${idx === 0 ? "bg-yellow-400 text-white" : idx === 1 ? "bg-gray-300 text-white" : idx === 2 ? "bg-orange-300 text-white" : "bg-white text-gray-400 border"}`}>
+                                                        {idx + 1}
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex justify-between items-baseline mb-1.5">
+                                                            <p className="font-bold text-gray-800 truncate">{m.name}</p>
+                                                            <span className="font-black text-indigo-700 shrink-0 ml-2">{m.revenue.toLocaleString()}원</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-indigo-400 rounded-full transition-all duration-700" style={{ width: `${pct}%` }}></div>
+                                                            </div>
+                                                            <span className="text-xs text-gray-400 shrink-0">{m.count}개</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {stats.menu_stats.length === 0 && <p className="text-center text-gray-400 py-10 font-bold">결제된 메뉴가 없습니다.</p>}
+                                    </div>
                                 </div>
                             )}
                         </div>
                     </div>
                 </>
-            ) : (
-                <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                    <span className="text-4xl mb-4 animate-spin">⏳</span>
-                    <p className="font-bold">데이터를 집계하고 있습니다...</p>
-                </div>
-            )}
+            ) : null}
         </div>
     );
 }
@@ -1164,117 +1361,210 @@ export function AdminOrders({ store, token }) {
     );
 }
 
+function ToggleSwitch({ checked, onChange }) {
+    return (
+        <button
+            onClick={() => onChange(!checked)}
+            className={`relative w-14 h-7 rounded-full transition-colors duration-300 focus:outline-none shrink-0 ${checked ? "bg-indigo-600" : "bg-gray-300"}`}
+        >
+            <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${checked ? "translate-x-7" : "translate-x-0"}`} />
+        </button>
+    );
+}
+
 export function AdminHardwareSettings({ store, token, fetchStore }) {
-    // 1. 하드웨어 관련 상태 관리
-    const [hasPos, setHasPos] = useState(store?.has_pos || false);
-    const [printerConfig, setPrinterConfig] = useState(store?.printer_config || "NONE"); // UNIFIED, SEPARATE, NONE
-    const [autoKitchenPrint, setAutoKitchenPrint] = useState(store?.auto_kitchen_print || false);
-    const [allowStaffOrder, setAllowStaffOrder] = useState(store?.allow_staff_order || true);
+    const [hasPos, setHasPos] = useState(store?.has_pos ?? false);
+    const [printerConfig, setPrinterConfig] = useState(store?.printer_config || "NONE");
+    const [autoKitchenPrint, setAutoKitchenPrint] = useState(store?.auto_kitchen_print ?? false);
+    const [allowStaffOrder, setAllowStaffOrder] = useState(store?.allow_staff_order ?? true);
+    const [saving, setSaving] = useState(false);
+    const [copied, setCopied] = useState(null);
 
     const handleSaveHardware = async () => {
+        setSaving(true);
         try {
             await axios.patch(`${API_BASE_URL}/stores/${store.id}`, {
                 has_pos: hasPos,
                 printer_config: printerConfig,
                 auto_kitchen_print: autoKitchenPrint,
-                allow_staff_order: allowStaffOrder
+                allow_staff_order: allowStaffOrder,
             }, { headers: { Authorization: `Bearer ${token}` } });
             toast.success("하드웨어 설정이 저장되었습니다.");
             fetchStore();
-        } catch (err) {
+        } catch {
             toast.error("설정 저장 실패");
+        } finally {
+            setSaving(false);
         }
     };
 
+    const copyToClipboard = (text, key) => {
+        navigator.clipboard.writeText(text);
+        setCopied(key);
+        setTimeout(() => setCopied(null), 1500);
+    };
+
+    const envContent = `SERVER_URL=${window.location.origin.replace(/:\d+$/, ":8000")}
+STORE_ID=${store.id}
+EMAIL=owner@example.com
+PASSWORD=yourpassword
+PRINTER_PORT=`;
+
+    const PRINTER_CONFIGS = [
+        { value: "NONE", label: "프린터 없음", desc: "출력 기능을 사용하지 않습니다.", icon: "🚫" },
+        { value: "UNIFIED", label: "통합 출력", desc: "영수증 프린터 1대로 주방지까지 출력합니다.", icon: "🖨️" },
+        { value: "SEPARATE", label: "분리 출력", desc: "영수증용과 주방용 프린터를 각각 사용합니다.", icon: "🖨️🖨️" },
+    ];
+
     return (
-        <div className="space-y-6 animate-fadeIn">
-            {/* 🖥️ 메인 장비 설정 */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="font-black text-xl mb-4 flex items-center gap-2">
-                    🖥️ 메인 시스템 환경
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                    <button 
-                        onClick={() => setHasPos(true)}
-                        className={`p-4 rounded-xl border-2 transition-all ${hasPos ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:border-gray-200"}`}
-                    >
-                        <div className="text-2xl mb-2 text-center">💻</div>
-                        <div className="font-bold text-center">표준 POS 시스템</div>
-                        <p className="text-xs text-gray-500 text-center mt-1">Windows POS기를 중심으로<br/>프린터와 리더기를 사용합니다.</p>
-                    </button>
-                    <button 
-                        onClick={() => { setHasPos(false); setPrinterConfig("NONE"); }}
-                        className={`p-4 rounded-xl border-2 transition-all ${!hasPos ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:border-gray-200"}`}
-                    >
-                        <div className="text-2xl mb-2 text-center">📱</div>
-                        <div className="font-bold text-center">모바일/태블릿 전용</div>
-                        <p className="text-xs text-gray-500 text-center mt-1">별도의 POS기 없이<br/>태블릿 화면으로만 운영합니다.</p>
-                    </button>
+        <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+            <div>
+                <h2 className="text-2xl font-extrabold text-gray-900">⚙️ 하드웨어 설정</h2>
+                <p className="text-sm text-gray-500 mt-1">매장 운영 환경과 프린터를 설정합니다.</p>
+            </div>
+
+            {/* 시스템 환경 */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <h3 className="font-extrabold text-gray-800">🖥️ 운영 시스템 환경</h3>
+                </div>
+                <div className="p-6 grid grid-cols-2 gap-4">
+                    {[
+                        { val: true,  icon: "💻", title: "표준 POS 시스템", desc: "Windows POS기를 중심으로\n프린터와 리더기를 사용합니다." },
+                        { val: false, icon: "📱", title: "모바일/태블릿 전용", desc: "별도의 POS기 없이\n태블릿 화면으로만 운영합니다." },
+                    ].map(opt => (
+                        <button key={String(opt.val)} onClick={() => { setHasPos(opt.val); if (!opt.val) setPrinterConfig("NONE"); }}
+                            className={`p-5 rounded-xl border-2 text-left transition-all ${hasPos === opt.val ? "border-indigo-500 bg-indigo-50 shadow-md" : "border-gray-200 hover:border-gray-300"}`}>
+                            <div className="text-3xl mb-3">{opt.icon}</div>
+                            <p className={`font-extrabold text-sm mb-1 ${hasPos === opt.val ? "text-indigo-700" : "text-gray-800"}`}>{opt.title}</p>
+                            <p className="text-xs text-gray-500 whitespace-pre-line leading-relaxed">{opt.desc}</p>
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* 🖨️ 프린터 세부 설정 (POS 사용 시에만 노출) */}
+            {/* 프린터 설정 — POS 선택 시에만 */}
             {hasPos && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 animate-slideDown">
-                    <h3 className="font-black text-xl mb-4 flex items-center gap-2">
-                        🖨️ 프린터 및 출력 정책
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-bold text-gray-600">프린터 구성 방식</label>
-                            <select 
-                                value={printerConfig}
-                                onChange={(e) => setPrinterConfig(e.target.value)}
-                                className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 font-bold outline-none focus:border-indigo-500"
-                            >
-                                <option value="NONE">프린터 사용 안 함</option>
-                                <option value="UNIFIED">통합 출력 (영수증 프린터 1대로 주방지까지)</option>
-                                <option value="SEPARATE">분리 출력 (영수증용 + 주방용 각각 있음)</option>
-                            </select>
-                        </div>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <h3 className="font-extrabold text-gray-800">🖨️ 프린터 구성</h3>
+                    </div>
+                    <div className="p-6 space-y-3">
+                        {PRINTER_CONFIGS.map(cfg => (
+                            <button key={cfg.value} onClick={() => { setPrinterConfig(cfg.value); if (cfg.value === "NONE") setAutoKitchenPrint(false); }}
+                                className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${printerConfig === cfg.value ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300"}`}>
+                                <span className="text-2xl">{cfg.icon}</span>
+                                <div className="flex-1">
+                                    <p className={`font-bold text-sm ${printerConfig === cfg.value ? "text-indigo-700" : "text-gray-800"}`}>{cfg.label}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">{cfg.desc}</p>
+                                </div>
+                                {printerConfig === cfg.value && <span className="text-indigo-500 text-xl">✓</span>}
+                            </button>
+                        ))}
 
                         {printerConfig !== "NONE" && (
-                            <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-xl">
+                            <div className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl mt-2">
                                 <div>
-                                    <p className="font-bold text-indigo-900">주방 주문서 자동 출력</p>
-                                    <p className="text-xs text-indigo-600">주문 접수 시 프린터에서 즉시 주문서가 나옵니다.</p>
+                                    <p className="font-bold text-indigo-900 text-sm">주방 주문서 자동 출력</p>
+                                    <p className="text-xs text-indigo-500 mt-0.5">주문 접수 즉시 프린터에서 주문서가 출력됩니다.</p>
                                 </div>
-                                <input 
-                                    type="checkbox" 
-                                    checked={autoKitchenPrint} 
-                                    onChange={(e) => setAutoKitchenPrint(e.target.checked)}
-                                    className="w-6 h-6 accent-indigo-600"
-                                />
+                                <ToggleSwitch checked={autoKitchenPrint} onChange={setAutoKitchenPrint} />
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* 👤 운영 편의 설정 */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="font-black text-xl mb-4 flex items-center gap-2">
-                    🛠️ 운영 편의 기능
-                </h3>
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                    <div>
-                        <p className="font-bold text-gray-800">직원 전용 주문 활성화</p>
-                        <p className="text-xs text-gray-500">현황판에서 직원이 직접 주문을 넣을 수 있습니다.</p>
+            {/* 프린터 에이전트 가이드 — 자동출력 ON일 때 */}
+            {hasPos && printerConfig !== "NONE" && autoKitchenPrint && (
+                <div className="bg-slate-900 rounded-2xl overflow-hidden shadow-lg">
+                    <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+                        <span className="text-lg">🤖</span>
+                        <h3 className="font-extrabold text-white">프린터 에이전트 설정 가이드</h3>
+                        <span className="ml-auto text-xs bg-green-500 text-white px-2 py-0.5 rounded-full font-bold">필수</span>
                     </div>
-                    <input 
-                        type="checkbox" 
-                        checked={allowStaffOrder} 
-                        onChange={(e) => setAllowStaffOrder(e.target.checked)}
-                        className="w-6 h-6 accent-indigo-600"
-                    />
+                    <div className="p-6 space-y-5 text-sm">
+                        <p className="text-slate-300 leading-relaxed">
+                            자동 출력은 <span className="text-white font-bold">toryOrderPrinterAgent</span>가 POS PC에서 실행 중이어야 동작합니다.<br/>
+                            아래 순서대로 설정하세요.
+                        </p>
+
+                        {/* Step 1 */}
+                        <div>
+                            <p className="text-slate-400 font-bold mb-2">① 패키지 설치</p>
+                            <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
+                                <code className="text-green-400 font-mono text-xs">pip install -r requirements.txt</code>
+                                <button onClick={() => copyToClipboard("pip install -r requirements.txt", "install")}
+                                    className="text-slate-400 hover:text-white text-xs shrink-0 transition">
+                                    {copied === "install" ? "✓ 복사됨" : "복사"}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Step 2 */}
+                        <div>
+                            <p className="text-slate-400 font-bold mb-2">② .env 파일 생성 <span className="text-slate-500 font-normal">(agent.py 와 같은 폴더에)</span></p>
+                            <div className="bg-slate-800 rounded-xl p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-slate-400 text-xs font-mono">.env</span>
+                                    <button onClick={() => copyToClipboard(envContent, "env")}
+                                        className="text-slate-400 hover:text-white text-xs transition">
+                                        {copied === "env" ? "✓ 복사됨" : "전체 복사"}
+                                    </button>
+                                </div>
+                                <pre className="text-green-400 font-mono text-xs whitespace-pre leading-relaxed overflow-x-auto">
+{`SERVER_URL=${window.location.origin.replace(/:\d+$/, ":8000")}
+STORE_ID=${store.id}
+EMAIL=`}<span className="text-yellow-400">owner@example.com</span>{`
+PASSWORD=`}<span className="text-yellow-400">yourpassword</span>{`
+PRINTER_PORT=`}<span className="text-slate-500"># 예: /dev/usb/lp0 또는 COM3 (비워두면 콘솔 출력)</span>
+                                </pre>
+                            </div>
+                        </div>
+
+                        {/* Step 3 */}
+                        <div>
+                            <p className="text-slate-400 font-bold mb-2">③ 에이전트 실행</p>
+                            <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
+                                <code className="text-green-400 font-mono text-xs">python agent.py</code>
+                                <button onClick={() => copyToClipboard("python agent.py", "run")}
+                                    className="text-slate-400 hover:text-white text-xs shrink-0 transition">
+                                    {copied === "run" ? "✓ 복사됨" : "복사"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex items-start gap-2 bg-slate-800 rounded-xl p-3">
+                            <span className="text-yellow-400 shrink-0">💡</span>
+                            <p className="text-slate-400 text-xs leading-relaxed">
+                                에이전트는 토큰 만료 및 연결 끊김 시 자동으로 재접속합니다.<br/>
+                                POS PC가 켜질 때 자동 실행되도록 작업 스케줄러(Windows) 또는 systemd(Linux)에 등록하면 편리합니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 운영 편의 */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <h3 className="font-extrabold text-gray-800">🛠️ 운영 편의 기능</h3>
+                </div>
+                <div className="p-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="font-bold text-gray-800 text-sm">직원 주문 입력 허용</p>
+                            <p className="text-xs text-gray-500 mt-0.5">테이블 현황판에서 직원이 직접 주문을 넣을 수 있습니다.</p>
+                        </div>
+                        <ToggleSwitch checked={allowStaffOrder} onChange={setAllowStaffOrder} />
+                    </div>
                 </div>
             </div>
 
-            <button 
-                onClick={handleSaveHardware}
-                className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-indigo-700 transition-all active:scale-95"
-            >
-                설정 저장 및 시스템 반영
+            {/* 저장 버튼 */}
+            <button onClick={handleSaveHardware} disabled={saving}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white py-4 rounded-2xl font-extrabold text-lg shadow-lg transition-all active:scale-95">
+                {saving ? "저장 중..." : "설정 저장"}
             </button>
         </div>
     );

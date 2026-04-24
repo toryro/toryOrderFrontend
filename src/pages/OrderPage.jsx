@@ -26,8 +26,11 @@ function OrderPage() {
     const [completedOrder, setCompletedOrder] = useState(null);
     const isProcessing = useRef(false);
 
-    const [orderType, setOrderType] = useState("DINE_IN"); 
+    const [orderType, setOrderType] = useState("DINE_IN");
     const [orderTypeSetting, setOrderTypeSetting] = useState("SELECTABLE");
+    const [isVirtual, setIsVirtual] = useState(false);
+    const [sessionExpired, setSessionExpired] = useState(false);
+    const sessionTokenRef = useRef(null);
 
     const getActivePrice = (menu) => {
         if (!menu.is_discounted || !menu.discount_price) return menu.price;
@@ -47,28 +50,43 @@ function OrderPage() {
         const fetchInfo = async () => {
             try {
                 const res = await axios.get(`${API_BASE_URL}/tables/by-token/${token}`);
+                const virtual = res.data.is_virtual === true;
+                setIsVirtual(virtual);
                 setTableInfo({ id: res.data.table_id, name: res.data.label });
                 setOrderTypeSetting(res.data.order_type_setting);
 
-                if (res.data.order_type_setting === "TAKEOUT_ONLY") {
+                if (virtual || res.data.order_type_setting === "TAKEOUT_ONLY") {
                     setOrderType("TAKEOUT");
                 } else {
                     setOrderType("DINE_IN");
                 }
-                
+
+                // 홀 테이블: sessionStorage에 세션 토큰이 없을 때만 새로 발급
+                // 새로 고침 시에는 기존 토큰을 재사용 (퇴석 후 차단 유지)
+                if (!virtual) {
+                    const storageKey = `ts_${token}`;
+                    let existingToken = sessionStorage.getItem(storageKey);
+                    if (!existingToken) {
+                        const sessionRes = await axios.post(`${API_BASE_URL}/tables/by-token/${token}/session`);
+                        existingToken = sessionRes.data.session_token;
+                        sessionStorage.setItem(storageKey, existingToken);
+                    }
+                    sessionTokenRef.current = existingToken;
+                }
+
                 const storeRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}`);
                 setStore(storeRes.data);
-                
-                try {
-                    const callRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}/call-options`);
-                    setCallOptions(callRes.data);
-                } catch (callErr) {
-                    setCallOptions([]);
+
+                if (!virtual) {
+                    try {
+                        const callRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}/call-options`);
+                        setCallOptions(callRes.data);
+                    } catch { setCallOptions([]); }
                 }
-            } catch (err) { 
-                toast.error("유효하지 않은 QR 코드입니다."); 
-            } finally { 
-                setLoading(false); 
+            } catch (err) {
+                toast.error("유효하지 않은 QR 코드입니다.");
+            } finally {
+                setLoading(false);
             }
         };
         fetchInfo();
@@ -86,7 +104,11 @@ function OrderPage() {
         if (impUid && !isProcessing.current) {
             isProcessing.current = true;
             if (isSuccess) {
-                axios.post(`${API_BASE_URL}/payments/complete`, { imp_uid: impUid, merchant_uid: merchantUid })
+                axios.post(`${API_BASE_URL}/payments/complete`, {
+                    imp_uid: impUid,
+                    merchant_uid: merchantUid,
+                    virtual_session_token: isVirtual ? token : undefined,
+                })
                 .then((res) => {
                     const dailyNum = res.data.daily_number || "확인중";
                     setCompletedOrder(dailyNum);
@@ -214,23 +236,25 @@ function OrderPage() {
         isProcessing.current = true; 
 
         const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const isPostPayStore = store.payment_policy === "POST_PAY"; 
+        // 가상세션(포장 1회용)은 항상 선불 강제
+        const isPostPayStore = !isVirtual && store.payment_policy === "POST_PAY";
 
         const itemsData = cart.map(item => ({
-            menu_id: item.menuId, 
+            menu_id: item.menuId,
             quantity: item.quantity,
-            options: item.options.map(o => ({ name: o.name, price: o.price })), 
+            options: item.options.map(o => ({ name: o.name, price: o.price })),
             options_desc: item.options.map(o => o.name).join(", "),
             price: item.price
         }));
 
         try {
-            const orderRes = await axios.post(`${API_BASE_URL}/orders/`, { 
-                store_id: store.id, 
-                table_id: tableInfo.id, 
+            const orderRes = await axios.post(`${API_BASE_URL}/orders/`, {
+                store_id: store.id,
+                table_id: tableInfo.id,
                 items: itemsData,
                 is_post_pay: isPostPayStore,
-                order_type: orderType 
+                order_type: orderType,
+                session_token: sessionTokenRef.current ?? undefined,
             });
             const tempDailyNumber = orderRes.data.daily_number;
 
@@ -270,7 +294,8 @@ function OrderPage() {
                     try {
                         await axios.post(`${API_BASE_URL}/payments/complete`, {
                             imp_uid: rsp.imp_uid,
-                            merchant_uid: rsp.merchant_uid
+                            merchant_uid: rsp.merchant_uid,
+                            virtual_session_token: isVirtual ? token : undefined,
                         });
                         
                         setCompletedOrder(tempDailyNumber);
@@ -288,25 +313,53 @@ function OrderPage() {
                 isProcessing.current = false; 
             });
 
-        } catch (err) { 
-            console.error("주문 생성 에러:", err);
-            toast.error(`🚫 주문 불가: ${err.response?.data?.detail || "주문 생성 실패"}`); 
-            isProcessing.current = false; 
+        } catch (err) {
+            if (err.response?.status === 403 && err.response?.data?.detail === "SESSION_EXPIRED") {
+                // sessionStorage는 지우지 않음 — 만료된 토큰을 유지해야 새로고침 후에도 차단이 유지됨
+                // (지우면 새로고침 시 새 세션이 발급되어 주문 가능해지는 버그 발생)
+                sessionTokenRef.current = null;
+                setSessionExpired(true);
+                setIsCartOpen(false);
+            } else {
+                console.error("주문 생성 에러:", err);
+                toast.error(`🚫 주문 불가: ${err.response?.data?.detail || "주문 생성 실패"}`);
+            }
+            isProcessing.current = false;
         }
     };
 
     if (loading || !store) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">⏳ 메뉴판 로딩 중...</div>;
+
+    if (sessionExpired) return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+            <div className="bg-white rounded-3xl w-full max-w-sm p-8 text-center shadow-2xl">
+                <div className="text-6xl mb-4">🔒</div>
+                <h2 className="text-2xl font-extrabold text-gray-800 mb-2">주문 세션 만료</h2>
+                <p className="text-gray-500 text-sm mb-6 leading-relaxed">
+                    테이블 퇴석 처리로 인해<br/>이 세션이 만료되었습니다.<br/>새로운 QR 코드를 스캔해주세요.
+                </p>
+                <div className="bg-slate-100 rounded-2xl p-4">
+                    <p className="text-xs text-slate-500 font-bold">테이블 QR 코드를 다시 스캔하면<br/>새로운 주문을 시작할 수 있습니다.</p>
+                </div>
+            </div>
+        </div>
+    );
 
     const totalCartPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
     return (
         <div className="min-h-screen bg-gray-50 pb-28 font-sans">
-            <div className="bg-white shadow-sm sticky top-0 z-10 px-4 py-4 flex justify-between items-center">
+            <div className={`shadow-sm sticky top-0 z-10 px-4 py-4 flex justify-between items-center ${isVirtual ? "bg-orange-500 text-white" : "bg-white"}`}>
                 <div>
-                    <h1 className="font-extrabold text-xl text-gray-800">{store.name}</h1>
-                    <p className="text-sm text-indigo-600 font-bold">📍 {tableInfo?.name}</p>
+                    <h1 className={`font-extrabold text-xl ${isVirtual ? "text-white" : "text-gray-800"}`}>{store.name}</h1>
+                    <p className={`text-sm font-bold ${isVirtual ? "text-orange-100" : "text-indigo-600"}`}>
+                        {isVirtual ? "🎁 포장 주문 (선결제 필수)" : `📍 ${tableInfo?.name}`}
+                    </p>
                 </div>
+                {isVirtual && (
+                    <span className="bg-white text-orange-600 text-xs font-black px-3 py-1.5 rounded-full shadow-sm">1회용 링크</span>
+                )}
             </div>
 
             <div className="p-4 space-y-8 max-w-lg mx-auto">
@@ -392,13 +445,15 @@ function OrderPage() {
             </div>
 
             <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 px-4 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-40 flex gap-3 pb-safe">
-                <button onClick={() => setIsCallModalOpen(true)} className="flex flex-col items-center justify-center bg-gray-100 text-gray-700 w-[72px] rounded-xl font-bold text-[11px] active:bg-gray-200 transition">
-                    <span className="text-2xl mb-0.5">🔔</span>
-                    호출
-                </button>
-                <button onClick={() => setIsCartOpen(true)} disabled={cart.length === 0} className={`flex-1 flex justify-between items-center px-5 rounded-xl font-bold text-lg transition shadow-lg ${cart.length > 0 ? 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.98]' : 'bg-gray-200 text-gray-400'}`}>
+                {!isVirtual && (
+                    <button onClick={() => setIsCallModalOpen(true)} className="flex flex-col items-center justify-center bg-gray-100 text-gray-700 w-[72px] rounded-xl font-bold text-[11px] active:bg-gray-200 transition">
+                        <span className="text-2xl mb-0.5">🔔</span>
+                        호출
+                    </button>
+                )}
+                <button onClick={() => setIsCartOpen(true)} disabled={cart.length === 0} className={`flex-1 flex justify-between items-center px-5 rounded-xl font-bold text-lg transition shadow-lg ${cart.length > 0 ? (isVirtual ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-indigo-600 text-white hover:bg-indigo-700') + ' active:scale-[0.98]' : 'bg-gray-200 text-gray-400'}`}>
                     <div className="flex items-center gap-2">
-                        <span className="text-2xl opacity-90">🛒</span>
+                        <span className="text-2xl opacity-90">{isVirtual ? "🎁" : "🛒"}</span>
                         {cart.length > 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{totalCartCount}</span>}
                     </div>
                     <span>{cart.length > 0 ? `${totalCartPrice.toLocaleString()}원 주문하기` : '장바구니 비어있음'}</span>
@@ -431,22 +486,22 @@ function OrderPage() {
                         <div className="p-5 bg-white border-t border-gray-200 shrink-0 pb-safe">
                             
                             <div className="mb-4">
-                                {orderTypeSetting === "SELECTABLE" && (
-                                    <div className="flex bg-gray-100 p-1 rounded-xl">
-                                        <button 
-                                            onClick={() => setOrderType("DINE_IN")}
-                                            className={`flex-1 py-2 font-bold text-sm rounded-lg transition-colors ${orderType === "DINE_IN" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
-                                        >🍽️ 매장 식사</button>
-                                        <button 
-                                            onClick={() => setOrderType("TAKEOUT")}
-                                            className={`flex-1 py-2 font-bold text-sm rounded-lg transition-colors ${orderType === "TAKEOUT" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
-                                        >🎁 포장하기</button>
+                                {isVirtual ? (
+                                    <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 p-3 rounded-xl">
+                                        <span className="text-2xl">🎁</span>
+                                        <div>
+                                            <p className="font-black text-orange-700 text-sm">포장 전용 주문 (선결제 필수)</p>
+                                            <p className="text-orange-500 text-xs mt-0.5">결제 후 이 링크는 자동으로 만료됩니다.</p>
+                                        </div>
                                     </div>
-                                )}
-                                {orderTypeSetting === "DINE_IN_ONLY" && (
+                                ) : orderTypeSetting === "SELECTABLE" ? (
+                                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                                        <button onClick={() => setOrderType("DINE_IN")} className={`flex-1 py-2 font-bold text-sm rounded-lg transition-colors ${orderType === "DINE_IN" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}>🍽️ 매장 식사</button>
+                                        <button onClick={() => setOrderType("TAKEOUT")} className={`flex-1 py-2 font-bold text-sm rounded-lg transition-colors ${orderType === "TAKEOUT" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}>🎁 포장하기</button>
+                                    </div>
+                                ) : orderTypeSetting === "DINE_IN_ONLY" ? (
                                     <div className="text-center py-2 bg-indigo-50 text-indigo-700 rounded-lg font-bold text-sm">🍽️ 매장 식사 전용 테이블입니다.</div>
-                                )}
-                                {orderTypeSetting === "TAKEOUT_ONLY" && (
+                                ) : (
                                     <div className="text-center py-2 bg-orange-50 text-orange-700 rounded-lg font-bold text-sm">🎁 포장 전용 주문입니다.</div>
                                 )}
                             </div>
@@ -562,13 +617,28 @@ function OrderPage() {
             {completedOrder && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md animate-fadeIn">
                     <div className="bg-white rounded-3xl w-[90%] max-w-sm p-8 text-center shadow-2xl">
-                        <div className="text-6xl mb-4 animate-bounce">🎫</div>
-                        <h2 className="text-2xl font-extrabold text-gray-800 mb-2">주문이 접수되었습니다!</h2>
-                        <p className="text-gray-500 mb-6">아래 번호를 기억해주세요.</p>
-                        <div className="bg-indigo-50 border-2 border-indigo-100 rounded-2xl p-6 mb-8">
-                            <p className="text-sm text-indigo-500 font-bold mb-1">나의 주문 번호</p>
-                            <p className="text-6xl font-black text-indigo-600 tracking-tighter">#{completedOrder}</p>
-                        </div>
+                        {isVirtual ? (
+                            <>
+                                <div className="text-6xl mb-4 animate-bounce">🎁</div>
+                                <h2 className="text-2xl font-extrabold text-gray-800 mb-2">포장 주문 완료!</h2>
+                                <p className="text-gray-500 mb-6">결제가 확인되었습니다.<br/>준비되면 번호를 불러드릴게요.</p>
+                                <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-6 mb-6">
+                                    <p className="text-sm text-orange-500 font-bold mb-1">포장 대기 번호</p>
+                                    <p className="text-6xl font-black text-orange-500 tracking-tighter">#{completedOrder}</p>
+                                </div>
+                                <p className="text-xs text-gray-400 mb-6">이 링크는 결제 완료로 만료되었습니다.</p>
+                            </>
+                        ) : (
+                            <>
+                                <div className="text-6xl mb-4 animate-bounce">🎫</div>
+                                <h2 className="text-2xl font-extrabold text-gray-800 mb-2">주문이 접수되었습니다!</h2>
+                                <p className="text-gray-500 mb-6">아래 번호를 기억해주세요.</p>
+                                <div className="bg-indigo-50 border-2 border-indigo-100 rounded-2xl p-6 mb-8">
+                                    <p className="text-sm text-indigo-500 font-bold mb-1">나의 주문 번호</p>
+                                    <p className="text-6xl font-black text-indigo-600 tracking-tighter">#{completedOrder}</p>
+                                </div>
+                            </>
+                        )}
                         <button onClick={() => setCompletedOrder(null)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg active:scale-95 transition">확인했습니다 👍</button>
                     </div>
                 </div>

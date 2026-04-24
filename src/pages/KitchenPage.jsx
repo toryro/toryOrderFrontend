@@ -108,11 +108,30 @@ function KitchenPage() {
                 }));
 
                 const updatedPrev = prevDisplay.map(disp => {
-                    const hasCancelled = disp.ref_order_ids.some(refId => {
-                        const found = freshOrders.find(o => o.id === refId);
-                        return found && found.payment_status === 'CANCELLED';
-                    });
-                    return hasCancelled ? { ...disp, is_fully_cancelled: true } : disp;
+                    const refOrders = disp.ref_order_ids
+                        .map(refId => freshOrders.find(o => o.id === refId))
+                        .filter(Boolean);
+
+                    // 전체 취소: 카드 전체를 취소 처리
+                    if (refOrders.some(o => o.payment_status === 'CANCELLED')) {
+                        return { ...disp, is_fully_cancelled: true };
+                    }
+
+                    // 부분 취소: 취소된 아이템만 is_cancelled 업데이트
+                    if (refOrders.some(o => o.payment_status === 'PARTIAL_CANCELLED')) {
+                        const updatedItems = disp.items.map(dispItem => {
+                            const parts = dispItem.unique_id.split('_'); // 'db_{orderId}_{itemId}'
+                            const orderId = parseInt(parts[1]);
+                            const itemId  = parseInt(parts[2]);
+                            const freshOrder = refOrders.find(o => o.id === orderId);
+                            if (!freshOrder) return dispItem;
+                            const freshItem = freshOrder.items.find(i => i.id === itemId);
+                            return freshItem ? { ...dispItem, is_cancelled: freshItem.is_cancelled } : dispItem;
+                        });
+                        return { ...disp, items: updatedItems };
+                    }
+
+                    return disp;
                 });
 
                 return [...newDisplayCards, ...updatedPrev].sort((a,b) => a.created_at.localeCompare(b.created_at));
@@ -165,11 +184,10 @@ function KitchenPage() {
                 return;
             }
 
-            // 3. [기존+신규] 주문 완료 및 호출 완료 처리
+            // 3. 주문 완료 처리
             if (data.type === "ORDER_COMPLETED") {
-                // 내 화면에서 해당 주문 제거 및 데이터 최신화
                 setDisplayOrders(prev => prev.filter(o => !o.ref_order_ids.includes(data.order_id)));
-                fetchInitialData(); 
+                fetchInitialData();
                 return;
             }
             if (data.type === "CALL_COMPLETED") {
@@ -177,17 +195,16 @@ function KitchenPage() {
                 return;
             }
 
-            // 4. [통합] 데이터 재로딩이 필요한 모든 타입들
-            const reloadTypes = [
-                "NEW_ORDER", 
-                "CANCEL_ORDER", 
-                "PARTIAL_CANCEL_ORDER", 
-                "NEW_CALL",
-                "TABLE_STATUS_CHANGED" // 테이블 상태 변경 시에도 안전하게 한 번 더 로드
-            ];
+            // 4. 주문 취소 / 부분 취소 처리
+            if (data.type === "ORDER_CANCELLED") {
+                fetchInitialData();
+                return;
+            }
 
+            // 5. 그 외 데이터 재로딩이 필요한 타입들
+            const reloadTypes = ["NEW_ORDER", "NEW_CALL", "TABLE_STATUS_CHANGED"];
             if (reloadTypes.includes(data.type)) {
-                fetchInitialData(); 
+                fetchInitialData();
             }
         };
 

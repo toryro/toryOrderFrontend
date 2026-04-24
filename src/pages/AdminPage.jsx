@@ -11,14 +11,15 @@ import AdminMenuManagement from "../components/admin/AdminMenuManagement";
 import StoreNoticeBoard from "../components/admin/StoreNoticeBoard";
 
 // 📦 2. 여러 개 묶어둔 설정 컴포넌트들 몽땅 불러오기!
-import { 
-    AdminStoreInfo, 
-    AdminCallOptionManagement, 
-    AdminHours, 
+import {
+    AdminStoreInfo,
+    AdminCallOptionManagement,
+    AdminHours,
     AdminTables,
     AdminSales,
     AdminUsers,
-    AdminOrders
+    AdminOrders,
+    AdminHardwareSettings,
 } from "../components/admin/StoreSettings";
 
 
@@ -218,6 +219,7 @@ function AdminPage() {
                     {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "sales" && <AdminSales store={store} token={token} />}
                     {activeTab === "users" && <AdminUsers store={store} token={token} />}
+                    {activeTab === "hardware" && <AdminHardwareSettings store={store} token={token} fetchStore={fetchStore} />}
                 </div>
             </div>
 
