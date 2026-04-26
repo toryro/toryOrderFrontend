@@ -29,6 +29,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
     const [paymentPolicy, setPaymentPolicy] = useState(store?.payment_policy || "PRE_PAY");
     const [useTableBoard, setUseTableBoard] = useState(store?.use_table_board ?? true);
     const [useMenuDetail, setUseMenuDetail] = useState(store?.use_menu_detail ?? false);
+    const [closingHour, setClosingHour] = useState(store?.closing_hour ?? 0);
 
     const isHQ = ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN"].includes(user?.role); 
     const [hasPos, setHasPos] = useState(store?.has_pos || false); // ✨ 신규: POS 사용 여부 상태
@@ -57,6 +58,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
             setPaymentPolicy(store.payment_policy || "PRE_PAY");
             setUseTableBoard(store.use_table_board ?? true);
             setUseMenuDetail(store.use_menu_detail ?? false);
+            setClosingHour(store.closing_hour ?? 0);
         }
     }, [store]);
 
@@ -83,7 +85,8 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                     payment_policy: paymentPolicy,
                     use_menu_detail: useMenuDetail,
                     use_table_board: useTableBoard,
-                    has_pos: hasPos // ✨ 신규: 백엔드로 POS 사용 여부 전송
+                    has_pos: hasPos,
+                    closing_hour: parseInt(closingHour),
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -118,7 +121,26 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                         <p className="text-sm text-indigo-600 mt-3 font-bold bg-white p-2 rounded-lg inline-block">
                             💡 후불 선택 시, 손님은 결제 과정 없이 바로 주문이 접수되며 주방 모니터에 '결제 대기'로 표시됩니다.
                         </p>
-                        
+                    </div>
+
+                    {/* 영업 마감 시각 (매출 정산 기준 시각) */}
+                    <div className="col-span-1 md:col-span-2 bg-slate-50 p-5 rounded-xl border border-slate-200">
+                        <label className="block text-base font-black text-slate-800 mb-1">
+                            🕛 영업 마감 기준 시각 (매출 정산용)
+                        </label>
+                        <p className="text-xs text-slate-500 mb-3">새벽에도 영업하는 경우, 이 시각 이전 주문은 전날 영업일로 집계됩니다. (예: 새벽 3시 설정 → 03:00 이전 주문 = 전날 매출)</p>
+                        <select
+                            value={closingHour}
+                            onChange={e => setClosingHour(e.target.value)}
+                            className="border-2 border-slate-200 rounded-xl px-4 py-2 font-bold text-gray-700 focus:border-indigo-500 outline-none bg-white"
+                        >
+                            <option value={0}>자정 (00:00) — 기본값</option>
+                            {[1,2,3,4,5,6].map(h => (
+                                <option key={h} value={h}>새벽 {h}시 (0{h}:00)</option>
+                            ))}
+                        </select>
+                    </div>
+
                         {/* ✨ [수정 완료] 테이블 현황판 사용 설정 */}
                         <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-indigo-200 mt-4 shadow-sm">
                             <div>
@@ -778,6 +800,8 @@ export function AdminSales({ store, token }) {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState("daily");
+    const [drillModal, setDrillModal] = useState({ isOpen: false, title: "", orders: [], loading: false });
+    const closingHour = store?.closing_hour || 0;
 
     const setRange = (type) => {
         const now = new Date();
@@ -808,6 +832,28 @@ export function AdminSales({ store, token }) {
         finally { setLoading(false); }
     };
 
+    const openDayDrill = async (date) => {
+        setDrillModal({ isOpen: true, title: `${date} 주문 내역`, orders: [], loading: true });
+        try {
+            const res = await axios.get(
+                `${API_BASE_URL}/stores/${store.id}/orders/by-date?date=${date}&closing_hour=${closingHour}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setDrillModal(prev => ({ ...prev, orders: res.data, loading: false }));
+        } catch { toast.error("주문 내역을 불러오는데 실패했습니다."); setDrillModal(prev => ({ ...prev, loading: false })); }
+    };
+
+    const openStatusDrill = async (status, title) => {
+        setDrillModal({ isOpen: true, title, orders: [], loading: true });
+        try {
+            const res = await axios.get(
+                `${API_BASE_URL}/stores/${store.id}/orders/period?start_date=${startDate}&end_date=${endDate}&status=${status}&closing_hour=${closingHour}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setDrillModal(prev => ({ ...prev, orders: res.data, loading: false }));
+        } catch { toast.error("주문 내역을 불러오는데 실패했습니다."); setDrillModal(prev => ({ ...prev, loading: false })); }
+    };
+
     useEffect(() => { fetchStats(); }, [startDate, endDate]);
 
     const exportCSV = () => {
@@ -827,6 +873,9 @@ export function AdminSales({ store, token }) {
             [""],
             ["=== 시간대별 매출 ===", "시간,주문건수,객단가,매출액"],
             ...stats.hourly_stats.map(h => ["", `${h.hour}시,${h.count},${h.avg_order_value || 0},${h.sales}`]),
+            [""],
+            ["=== 카테고리별 매출 ===", "카테고리,판매수량,매출액"],
+            ...(stats.category_stats || []).map(c => ["", `${c.name},${c.count},${c.revenue}`]),
             [""],
             ["=== 메뉴별 매출 ===", "메뉴명,판매수량,매출액"],
             ...stats.menu_stats.map(m => ["", `${m.name},${m.count},${m.revenue}`]),
@@ -929,16 +978,22 @@ export function AdminSales({ store, token }) {
 
                         {/* 취소/환불 또는 후불 미수금 */}
                         {(stats.cancelled_count > 0 || stats.deferred_revenue > 0) ? (
-                            <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl relative overflow-hidden">
+                            <div
+                                className="bg-rose-50 border border-rose-200 p-6 rounded-2xl relative overflow-hidden cursor-pointer hover:shadow-md transition"
+                                onClick={() => {
+                                    if (stats.cancelled_count > 0) openStatusDrill("CANCELLED", `취소 주문 내역 (${startDate} ~ ${endDate})`);
+                                    else openStatusDrill("DEFERRED", `후불 미수금 내역 (${startDate} ~ ${endDate})`);
+                                }}
+                            >
                                 {stats.cancelled_count > 0 ? (
                                     <>
-                                        <p className="text-rose-700 font-bold mb-1 text-xs">취소 · 환불</p>
+                                        <p className="text-rose-700 font-bold mb-1 text-xs">취소 · 환불 <span className="ml-1 text-rose-400">(클릭하여 상세보기)</span></p>
                                         <p className="text-2xl font-black text-rose-600">-{stats.refund_amount.toLocaleString()}원</p>
                                         <p className="text-rose-400 text-xs mt-2">총 {stats.cancelled_count}건 취소됨</p>
                                     </>
                                 ) : (
                                     <>
-                                        <p className="text-amber-700 font-bold mb-1 text-xs">후불 미수금</p>
+                                        <p className="text-amber-700 font-bold mb-1 text-xs">후불 미수금 <span className="ml-1 text-amber-400">(클릭하여 상세보기)</span></p>
                                         <p className="text-2xl font-black text-amber-600">{stats.deferred_revenue.toLocaleString()}원</p>
                                         <p className="text-amber-400 text-xs mt-2">미결제 후불 주문</p>
                                     </>
@@ -1009,14 +1064,47 @@ export function AdminSales({ store, token }) {
                         </div>
                     </div>
 
+                    {/* 3-b. 할인 효과 (original_price 데이터가 있는 경우만) */}
+                    {stats.discount_gap !== null && stats.discount_gap !== undefined && (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-700 mb-4 text-sm">할인 효과 분석</h3>
+                            <div className="grid grid-cols-3 gap-4 text-center">
+                                <div className="bg-gray-50 rounded-xl p-4">
+                                    <p className="text-xs text-gray-400 font-bold mb-1">정가 합계</p>
+                                    <p className="text-lg font-black text-gray-700">{(stats.discount_original || 0).toLocaleString()}원</p>
+                                </div>
+                                <div className="bg-indigo-50 rounded-xl p-4">
+                                    <p className="text-xs text-indigo-400 font-bold mb-1">실결제 합계</p>
+                                    <p className="text-lg font-black text-indigo-700">{(stats.discount_actual || 0).toLocaleString()}원</p>
+                                </div>
+                                <div className="bg-rose-50 rounded-xl p-4">
+                                    <p className="text-xs text-rose-400 font-bold mb-1">할인 포기 금액</p>
+                                    <p className="text-lg font-black text-rose-600">-{(stats.discount_gap || 0).toLocaleString()}원</p>
+                                </div>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-3">※ 업데이트 이후 생성된 주문부터 집계됩니다.</p>
+                        </div>
+                    )}
+
+                    {/* 3-c. 정산서 인쇄 버튼 */}
+                    <div className="flex justify-end">
+                        <button
+                            onClick={() => window.print()}
+                            className="px-5 py-2.5 text-sm font-bold rounded-xl bg-slate-700 text-white hover:bg-slate-900 transition shadow-sm"
+                        >
+                            정산서 인쇄
+                        </button>
+                    </div>
+
                     {/* 4. 상세 분석 탭 */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                         <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
                             {[
-                                ["daily",   "📅 일별"],
-                                ["monthly", "🗓️ 월별"],
-                                ["weekday", "📊 요일별"],
-                                ["hourly",  "⏰ 시간대별"],
+                                ["daily",    "📅 일별"],
+                                ["monthly",  "🗓️ 월별"],
+                                ["weekday",  "📊 요일별"],
+                                ["hourly",   "⏰ 시간대별"],
+                                ["category", "🗂️ 카테고리별"],
                                 ["menu",    "🍔 메뉴별"],
                             ].map(([k, l]) => (
                                 <button key={k} onClick={() => setActiveTab(k)}
@@ -1041,8 +1129,8 @@ export function AdminSales({ store, token }) {
                                         </thead>
                                         <tbody>
                                             {stats.daily_stats.map((d, i) => (
-                                                <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
-                                                    <td className="py-3 font-bold text-gray-800">{d.date}</td>
+                                                <tr key={i} onClick={() => openDayDrill(d.date)} className="border-b border-gray-100 hover:bg-indigo-50 cursor-pointer transition">
+                                                    <td className="py-3 font-bold text-indigo-700 underline underline-offset-2">{d.date}</td>
                                                     <td className="py-3 text-right text-gray-600 font-medium">{d.count}건</td>
                                                     <td className="py-3 text-right font-bold text-purple-600">{(d.avg_order_value || 0).toLocaleString()}원</td>
                                                     <td className="py-3 text-right font-black text-indigo-600">{d.sales.toLocaleString()}원</td>
@@ -1183,8 +1271,98 @@ export function AdminSales({ store, token }) {
                                     </div>
                                 </div>
                             )}
+
+                            {/* 카테고리별 */}
+                            {activeTab === "category" && (
+                                <div className="animate-fadeIn">
+                                    <p className="text-xs text-gray-400 font-bold mb-4 text-right">※ 매출액 기준 내림차순</p>
+                                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                        {(stats.category_stats || []).map((c, idx) => {
+                                            const maxRev = stats.category_stats[0]?.revenue || 1;
+                                            const pct = (c.revenue / maxRev) * 100;
+                                            return (
+                                                <div key={idx} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-indigo-200 transition">
+                                                    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shadow-sm shrink-0 ${idx === 0 ? "bg-yellow-400 text-white" : idx === 1 ? "bg-gray-300 text-white" : idx === 2 ? "bg-orange-300 text-white" : "bg-white text-gray-400 border"}`}>
+                                                        {idx + 1}
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex justify-between items-baseline mb-1.5">
+                                                            <p className="font-bold text-gray-800 truncate">{c.name}</p>
+                                                            <span className="font-black text-indigo-700 shrink-0 ml-2">{c.revenue.toLocaleString()}원</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-teal-400 rounded-full transition-all duration-700" style={{ width: `${pct}%` }}></div>
+                                                            </div>
+                                                            <span className="text-xs text-gray-400 shrink-0">{c.count}개</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {(!stats.category_stats || stats.category_stats.length === 0) && <p className="text-center text-gray-400 py-10 font-bold">데이터 없음</p>}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
+
+                    {/* 드릴다운 모달 */}
+                    {drillModal.isOpen && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDrillModal(prev => ({ ...prev, isOpen: false }))}>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center p-6 border-b">
+                                    <h3 className="font-black text-gray-800 text-lg">{drillModal.title}</h3>
+                                    <button onClick={() => setDrillModal(prev => ({ ...prev, isOpen: false }))} className="text-gray-400 hover:text-gray-700 text-2xl font-bold leading-none">×</button>
+                                </div>
+                                <div className="overflow-y-auto flex-1 p-4">
+                                    {drillModal.loading ? (
+                                        <div className="flex items-center justify-center py-12 text-gray-400 font-bold">불러오는 중...</div>
+                                    ) : drillModal.orders.length === 0 ? (
+                                        <div className="flex items-center justify-center py-12 text-gray-400 font-bold">주문 내역이 없습니다.</div>
+                                    ) : (
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b-2 border-gray-200 text-gray-500 text-xs">
+                                                    <th className="pb-2 font-bold text-left">시간</th>
+                                                    <th className="pb-2 font-bold text-left">테이블</th>
+                                                    <th className="pb-2 font-bold text-left">메뉴</th>
+                                                    <th className="pb-2 font-bold text-right">금액</th>
+                                                    <th className="pb-2 font-bold text-right">상태</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {drillModal.orders.map((o, i) => {
+                                                    const statusLabel = { PAID: "완료", DEFERRED: "후불", CANCELLED: "취소", PARTIAL_CANCELLED: "부분취소" }[o.payment_status] || o.payment_status;
+                                                    const statusColor = { PAID: "text-emerald-600", DEFERRED: "text-amber-600", CANCELLED: "text-rose-600", PARTIAL_CANCELLED: "text-orange-500" }[o.payment_status] || "text-gray-500";
+                                                    const menuSummary = o.items.filter(it => !it.is_cancelled).map(it => `${it.menu_name}×${it.quantity}`).join(", ");
+                                                    const timeStr = new Date(o.created_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+                                                    return (
+                                                        <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                                                            <td className="py-2.5 text-gray-500 text-xs">{timeStr}</td>
+                                                            <td className="py-2.5 font-bold text-gray-700">{o.table_name}</td>
+                                                            <td className="py-2.5 text-gray-600 max-w-[200px] truncate">{menuSummary || "-"}</td>
+                                                            <td className="py-2.5 text-right font-black text-indigo-700">{(o.paid_amount || o.total_price || 0).toLocaleString()}원</td>
+                                                            <td className={`py-2.5 text-right font-bold text-xs ${statusColor}`}>{statusLabel}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="border-t-2 border-gray-200">
+                                                    <td colSpan="3" className="pt-3 font-bold text-gray-500 text-xs">{drillModal.orders.length}건</td>
+                                                    <td className="pt-3 text-right font-black text-indigo-700">
+                                                        {drillModal.orders.filter(o => ["PAID","PARTIAL_CANCELLED"].includes(o.payment_status)).reduce((s, o) => s + (o.paid_amount || o.total_price || 0), 0).toLocaleString()}원
+                                                    </td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </>
             ) : null}
         </div>
