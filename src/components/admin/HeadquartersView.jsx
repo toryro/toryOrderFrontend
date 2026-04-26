@@ -27,8 +27,21 @@ function AdminBrandManagement({ token }) {
 
     const handleCreateBrand = async () => {
         if (!newBrandName) return toast.error("브랜드명 필수");
-        try { await axios.post(`${API_BASE_URL}/brands/`, { name: newBrandName, logo_url: newBrandLogo }, { headers: { Authorization: `Bearer ${token}` } }); toast.success("생성 완료"); setNewBrandName(""); fetchBrands(); } 
+        try { await axios.post(`${API_BASE_URL}/brands/`, { name: newBrandName, logo_url: newBrandLogo }, { headers: { Authorization: `Bearer ${token}` } }); toast.success("생성 완료"); setNewBrandName(""); setNewBrandLogo(""); fetchBrands(); }
         catch (err) { toast.error("생성 실패"); }
+    };
+
+    const handleLogoUpload = async (e) => {
+        const formData = new FormData();
+        formData.append("file", e.target.files[0]);
+        try {
+            const res = await axios.post(`${API_BASE_URL}/upload/`, formData, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setNewBrandLogo(res.data.url);
+        } catch {
+            toast.error("로고 업로드에 실패했습니다.");
+        }
     };
 
     return (
@@ -36,7 +49,20 @@ function AdminBrandManagement({ token }) {
             <h2 className="text-2xl font-bold text-gray-800">👑 브랜드 관리</h2>
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex gap-4 items-end">
                 <input className="border p-3 rounded-lg flex-1" placeholder="브랜드 이름" value={newBrandName} onChange={e=>setNewBrandName(e.target.value)} />
-                <input className="border p-3 rounded-lg flex-1" placeholder="로고 URL" value={newBrandLogo} onChange={e=>setNewBrandLogo(e.target.value)} />
+                <label className="flex-1 cursor-pointer">
+                    {newBrandLogo ? (
+                        <div className="relative border rounded-lg overflow-hidden h-12 flex items-center px-3 gap-2">
+                            <img src={newBrandLogo} alt="logo preview" className="h-8 w-8 object-contain rounded" />
+                            <span className="text-sm text-gray-500 truncate flex-1">로고 업로드 완료</span>
+                            <button type="button" onClick={(e) => { e.preventDefault(); setNewBrandLogo(""); }} className="text-red-400 hover:text-red-600 font-bold">×</button>
+                        </div>
+                    ) : (
+                        <div className="border border-dashed p-3 rounded-lg text-gray-400 text-sm text-center hover:bg-gray-50 h-12 flex items-center justify-center">
+                            로고 이미지 업로드
+                        </div>
+                    )}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                </label>
                 <button onClick={handleCreateBrand} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700">생성</button>
             </div>
             <div className="grid grid-cols-3 gap-4">

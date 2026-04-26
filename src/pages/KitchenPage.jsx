@@ -8,10 +8,12 @@ function KitchenPage() {
     const { storeId } = useParams();
     
     // === 기본 상태 관리 ===
-    const [dbOrders, setDbOrders] = useState([]); 
-    const [displayOrders, setDisplayOrders] = useState([]); 
-    const [staffCalls, setStaffCalls] = useState([]); 
+    const [dbOrders, setDbOrders] = useState([]);
+    const [displayOrders, setDisplayOrders] = useState([]);
+    const [staffCalls, setStaffCalls] = useState([]);
     const [isConnected, setIsConnected] = useState(false);
+    const [storeInfo, setStoreInfo] = useState(null);
+    const [collectModal, setCollectModal] = useState({ isOpen: false, order: null });
     
     // === 오디오 및 알람 상태 ===
     const [isAudioAllowed, setIsAudioAllowed] = useState(false);
@@ -82,14 +84,19 @@ function KitchenPage() {
 
 
     const fetchInitialData = async () => {
-        const token = localStorage.getItem("token"); 
+        const token = localStorage.getItem("token");
         if (!token) return;
 
         try {
-            const ordersRes = await axios.get(`${API_BASE_URL}/stores/${storeId}/orders`, { headers: { Authorization: `Bearer ${token}` } });
+            const [ordersRes, storeRes] = await Promise.all([
+                axios.get(`${API_BASE_URL}/stores/${storeId}/orders`, { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get(`${API_BASE_URL}/stores/${storeId}`, { headers: { Authorization: `Bearer ${token}` } }),
+            ]);
+            setStoreInfo(storeRes.data);
+
             const freshOrders = ordersRes.data.filter(order => !order.is_completed);
             setDbOrders(freshOrders);
-            
+
             setDisplayOrders(prevDisplay => {
                 const existingDbIds = new Set(prevDisplay.flatMap(o => o.ref_order_ids));
                 const newOrders = freshOrders.filter(dbO => !existingDbIds.has(dbO.id));
@@ -102,7 +109,8 @@ function KitchenPage() {
                     target_time: dbO.target_time || 15,
                     is_fully_cancelled: dbO.payment_status === "CANCELLED",
                     payment_status: dbO.payment_status,
-                    cooking_status: dbO.cooking_status || "PENDING", 
+                    cooking_status: dbO.cooking_status || "PENDING",
+                    total_price: dbO.total_price || 0,
                     ref_order_ids: [dbO.id],
                     items: dbO.items.map(item => ({...item, unique_id: `db_${dbO.id}_${item.id}`}))
                 }));
@@ -201,7 +209,17 @@ function KitchenPage() {
                 return;
             }
 
-            // 5. 그 외 데이터 재로딩이 필요한 타입들
+            // 5. 후불 수납 완료 → 해당 카드의 payment_status 업데이트
+            if (data.type === "PAYMENT_COLLECTED") {
+                setDisplayOrders(prev => prev.map(o =>
+                    o.ref_order_ids.includes(data.order_id)
+                        ? { ...o, payment_status: "PAID" }
+                        : o
+                ));
+                return;
+            }
+
+            // 6. 그 외 데이터 재로딩이 필요한 타입들
             const reloadTypes = ["NEW_ORDER", "NEW_CALL", "TABLE_STATUS_CHANGED"];
             if (reloadTypes.includes(data.type)) {
                 fetchInitialData();
@@ -298,6 +316,25 @@ function KitchenPage() {
         } catch (err) { toast.error("처리 실패"); }
     };
 
+    const handleCollectPayment = async (paymentMethod) => {
+        const token = localStorage.getItem("token");
+        const { order } = collectModal;
+        try {
+            await Promise.all(
+                order.ref_order_ids.map(id =>
+                    axios.patch(`${API_BASE_URL}/orders/${id}/collect-payment`,
+                        { payment_method: paymentMethod },
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                )
+            );
+            setCollectModal({ isOpen: false, order: null });
+            toast.success("수납이 완료되었습니다!");
+        } catch (err) {
+            toast.error("수납 처리 실패");
+        }
+    };
+
     const handleCompleteCall = async (callId) => {
         const token = localStorage.getItem("token"); 
         try {
@@ -322,11 +359,12 @@ function KitchenPage() {
             display_id: `merged_${Date.now()}`,
             daily_numbers: mergedDailyNumbers,
             table_name: targetCards[0].table_name,
-            created_at: targetCards[0].created_at, 
-            target_time: targetCards[0].target_time, 
+            created_at: targetCards[0].created_at,
+            target_time: targetCards[0].target_time,
             is_fully_cancelled: targetCards.some(c => c.is_fully_cancelled),
             payment_status: targetCards[0].payment_status,
-            cooking_status: targetCards.some(c => c.cooking_status === "COOKING") ? "COOKING" : "PENDING", 
+            cooking_status: targetCards.some(c => c.cooking_status === "COOKING") ? "COOKING" : "PENDING",
+            total_price: targetCards.reduce((sum, c) => sum + (c.total_price || 0), 0),
             ref_order_ids: [...new Set(targetCards.flatMap(c => c.ref_order_ids))],
             items: combinedItems
         };
@@ -570,27 +608,47 @@ function KitchenPage() {
                                     </ul>
                                 </div>
                                 
-                                {!isMergeMode && (
-                                    <div className="p-4 border-t bg-white flex gap-2">
-                                        {!isFullyCancelled && totalQty > 1 && order.cooking_status === "COOKING" && (
-                                            <button 
-                                                onClick={(e) => openSplitModal(order, e)} 
-                                                className="w-[72px] py-2 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex flex-col items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 shrink-0"
-                                            >
-                                                <span className="text-lg leading-none mb-1">✂️</span>
-                                                <span className="text-[11px] leading-tight text-center">주문<br/>분할</span>
-                                            </button>
-                                        )}
+                                {/* 후불 미수납 배지 */}
+                                {!isFullyCancelled && order.payment_status === "DEFERRED" && (
+                                    <div className="bg-amber-50 border-t border-amber-200 px-4 py-2 flex items-center justify-between">
+                                        <span className="text-xs font-black text-amber-700">💴 후불 미수납</span>
+                                        <span className="text-xs font-bold text-amber-600">{(order.total_price || 0).toLocaleString()}원</span>
+                                    </div>
+                                )}
 
-                                        {!isFullyCancelled && order.cooking_status === "PENDING" ? (
-                                            <button onClick={() => handleStartCooking(order.display_id)} 
-                                                className="flex-1 py-3 rounded-xl font-black text-lg shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900">
-                                                <span>접수 대기 (시작)</span> <span>👉</span>
-                                            </button>
-                                        ) : (
-                                            <button onClick={() => handleCompleteOrder(order)} 
-                                                className={`flex-1 py-3 rounded-xl font-bold text-lg shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${isFullyCancelled ? 'bg-gray-800 hover:bg-black text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
-                                                {isFullyCancelled ? <><span>취소 확인</span> <span>🗑️</span></> : <><span>조리 완료</span> <span>✅</span></>}
+                                {!isMergeMode && (
+                                    <div className="p-4 border-t bg-white flex flex-col gap-2">
+                                        <div className="flex gap-2">
+                                            {!isFullyCancelled && totalQty > 1 && order.cooking_status === "COOKING" && (
+                                                <button
+                                                    onClick={(e) => openSplitModal(order, e)}
+                                                    className="w-[72px] py-2 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex flex-col items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 shrink-0"
+                                                >
+                                                    <span className="text-lg leading-none mb-1">✂️</span>
+                                                    <span className="text-[11px] leading-tight text-center">주문<br/>분할</span>
+                                                </button>
+                                            )}
+
+                                            {!isFullyCancelled && order.cooking_status === "PENDING" ? (
+                                                <button onClick={() => handleStartCooking(order.display_id)}
+                                                    className="flex-1 py-3 rounded-xl font-black text-lg shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900">
+                                                    <span>접수 대기 (시작)</span> <span>👉</span>
+                                                </button>
+                                            ) : (
+                                                <button onClick={() => handleCompleteOrder(order)}
+                                                    className={`flex-1 py-3 rounded-xl font-bold text-lg shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${isFullyCancelled ? 'bg-gray-800 hover:bg-black text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+                                                    {isFullyCancelled ? <><span>취소 확인</span> <span>🗑️</span></> : <><span>조리 완료</span> <span>✅</span></>}
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* 수납 버튼 (DEFERRED 상태일 때만) */}
+                                        {!isFullyCancelled && order.payment_status === "DEFERRED" && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setCollectModal({ isOpen: true, order }); }}
+                                                className="w-full py-2.5 rounded-xl font-black text-base bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                                            >
+                                                <span>💴</span> 수납 처리
                                             </button>
                                         )}
                                     </div>
@@ -623,7 +681,7 @@ function KitchenPage() {
                         </div>
                         <div className="p-6 bg-gray-50 flex flex-col">
                             <p className="text-gray-800 font-black text-xl mb-4">새 카드로 보낼 메뉴 개수를 선택하세요</p>
-                            
+
                             <div className="space-y-3 mb-6 max-h-[40vh] overflow-y-auto pr-2">
                                 {splitModal.order.items.filter(i => !i.is_cancelled).map(item => (
                                     <div key={item.unique_id} className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200">
@@ -632,15 +690,15 @@ function KitchenPage() {
                                             <p className="text-xs text-indigo-500 font-bold mt-1">현재 총 {item.quantity}개</p>
                                         </div>
                                         <div className="flex items-center gap-3 bg-gray-100 p-1.5 rounded-lg">
-                                            <button 
-                                                onClick={() => handleSplitQtyChange(item.unique_id, -1, item.quantity)} 
+                                            <button
+                                                onClick={() => handleSplitQtyChange(item.unique_id, -1, item.quantity)}
                                                 className="w-8 h-8 rounded-md bg-white text-gray-600 font-black text-xl shadow-sm hover:bg-gray-50"
                                             >-</button>
                                             <span className="text-xl font-black text-indigo-600 w-6 text-center">
                                                 {splitModal.splitSelections[item.unique_id] || 0}
                                             </span>
-                                            <button 
-                                                onClick={() => handleSplitQtyChange(item.unique_id, 1, item.quantity)} 
+                                            <button
+                                                onClick={() => handleSplitQtyChange(item.unique_id, 1, item.quantity)}
                                                 className="w-8 h-8 rounded-md bg-white text-gray-600 font-black text-xl shadow-sm hover:bg-gray-50"
                                             >+</button>
                                         </div>
@@ -650,6 +708,54 @@ function KitchenPage() {
 
                             <button onClick={executeSplit} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 text-lg rounded-xl shadow-md transition-colors">
                                 선택한 메뉴 분리하기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {collectModal.isOpen && collectModal.order && (
+                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setCollectModal({ isOpen: false, order: null })}>
+                    <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fadeIn" onClick={e => e.stopPropagation()}>
+                        <div className="bg-emerald-700 text-white p-5 font-bold text-lg flex justify-between items-center">
+                            <span className="flex items-center gap-2"><span className="text-2xl">💴</span> 수납 처리</span>
+                            <button onClick={() => setCollectModal({ isOpen: false, order: null })} className="text-emerald-200 hover:text-white text-2xl">&times;</button>
+                        </div>
+                        <div className="p-6 flex flex-col gap-4">
+                            <div className="bg-gray-50 rounded-xl p-4 text-center">
+                                <p className="text-sm text-gray-500 mb-1">테이블 · {collectModal.order.table_name}</p>
+                                <p className="text-3xl font-black text-gray-800">{(collectModal.order.total_price || 0).toLocaleString()}<span className="text-lg font-bold ml-1">원</span></p>
+                            </div>
+
+                            {storeInfo?.has_pos ? (
+                                <button
+                                    onClick={() => handleCollectPayment("POS")}
+                                    className="w-full py-4 rounded-xl font-black text-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
+                                >
+                                    포스기 수납 완료 ✅
+                                </button>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        onClick={() => handleCollectPayment("card")}
+                                        className="py-4 rounded-xl font-black text-lg bg-indigo-500 hover:bg-indigo-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                    >
+                                        <span className="text-2xl">💳</span> 카드
+                                    </button>
+                                    <button
+                                        onClick={() => handleCollectPayment("cash")}
+                                        className="py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                    >
+                                        <span className="text-2xl">💵</span> 현금
+                                    </button>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={() => setCollectModal({ isOpen: false, order: null })}
+                                className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
+                            >
+                                취소
                             </button>
                         </div>
                     </div>

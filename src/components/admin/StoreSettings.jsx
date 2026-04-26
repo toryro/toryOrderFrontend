@@ -157,23 +157,38 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                                 <span className="text-2xl">🖥️</span>
                                 <div>
                                     <h3 className="font-extrabold text-lg text-gray-900">POS 시스템 연동 정책</h3>
-                                    <p className="text-xs text-gray-500 font-bold mt-1">매장에 Windows POS기가 있는지 여부에 따라 결제 및 세션 만료 방식이 달라집니다.</p>
+                                    <p className="text-xs text-gray-500 font-bold mt-1">POS기 유무에 따라 결제 방식, 영수증 자동 출력, 후불 수납 UI가 달라집니다.</p>
                                 </div>
                             </div>
-                            
+
                             <div className="flex bg-gray-100 p-1.5 rounded-xl">
-                                <button 
+                                <button
                                     onClick={() => setHasPos(true)}
                                     className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${hasPos ? "bg-white text-indigo-700 shadow-md" : "text-gray-500 hover:text-gray-700"}`}
                                 >
-                                    ✅ POS기 사용함 (직원이 퇴석 처리)
+                                    ✅ POS기 사용함
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => setHasPos(false)}
                                     className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${!hasPos ? "bg-white text-indigo-700 shadow-md" : "text-gray-500 hover:text-gray-700"}`}
                                 >
-                                    📱 POS기 없음 (결제 시 자동 퇴석)
+                                    📱 POS기 없음
                                 </button>
+                            </div>
+                            <div className={`mt-3 p-3 rounded-xl text-xs font-bold leading-relaxed ${hasPos ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"}`}>
+                                {hasPos ? (
+                                    <>
+                                        <p>· 후불 주문 접수 후 고객에게 <strong>"포스기에서 결제해주세요"</strong> 안내</p>
+                                        <p>· 결제 완료 후 영수증 자동 출력 생략 (POS가 직접 출력)</p>
+                                        <p>· 수납 모달에서 결제수단 선택 없이 <strong>"포스기 수납 완료"</strong> 버튼만 표시</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p>· 후불 주문 접수 후 고객에게 <strong>"카운터에서 결제해주세요"</strong> 안내</p>
+                                        <p>· 결제 완료 후 영수증 프린터로 자동 출력</p>
+                                        <p>· 수납 모달에서 <strong>카드 / 현금</strong> 중 결제수단 선택 후 수납 처리</p>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -574,23 +589,34 @@ export function AdminHours({ store, token, fetchStore }) {
 }
 
 // 4. 테이블 및 QR 관리
-export function AdminTables({ store, token, fetchStore }) { 
+export function AdminTables({ store, token, fetchStore }) {
     const [newTableName, setNewTableName] = useState("");
+    const [newCounterName, setNewCounterName] = useState("");
     const [editingTableId, setEditingTableId] = useState(null);
     const [editingName, setEditingName] = useState("");
     const [zoomQrTable, setZoomQrTable] = useState(null);
 
-    const handleCreateTable = async () => {
-        if (!newTableName) return;
+    const dineInTables = store.tables?.filter(t => t.table_type !== "TAKEOUT_COUNTER") ?? [];
+    const takeoutCounters = store.tables?.filter(t => t.table_type === "TAKEOUT_COUNTER") ?? [];
+
+    const handleCreateTable = async (tableType) => {
+        const name = tableType === "TAKEOUT_COUNTER" ? newCounterName : newTableName;
+        if (!name) return;
         try {
-            await axios.post(`${API_BASE_URL}/stores/${store.id}/tables/`, { name: newTableName }, { headers: { Authorization: `Bearer ${token}` } });
-            setNewTableName(""); fetchStore();
-        } catch (err) { toast.error("테이블 생성 실패"); }
+            await axios.post(
+                `${API_BASE_URL}/stores/${store.id}/tables/`,
+                { name, table_type: tableType },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (tableType === "TAKEOUT_COUNTER") setNewCounterName("");
+            else setNewTableName("");
+            fetchStore();
+        } catch (err) { toast.error("생성 실패"); }
     };
 
     const handleDeleteTable = async (id) => {
         if (!window.confirm("정말 삭제하시겠습니까? QR코드도 무효화됩니다.")) return;
-        try { await axios.delete(`${API_BASE_URL}/tables/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchStore(); } 
+        try { await axios.delete(`${API_BASE_URL}/tables/${id}`, { headers: { Authorization: `Bearer ${token}` } }); fetchStore(); }
         catch (err) { toast.error("삭제 실패"); }
     };
 
@@ -603,16 +629,15 @@ export function AdminTables({ store, token, fetchStore }) {
         } catch (err) { toast.error("수정 실패"); }
     };
 
-    const getQrImageUrl = (token, size = 150) => {
-        const targetUrl = `${window.location.protocol}//${window.location.host}/order/${token}`;
+    const getQrImageUrl = (qrToken, size = 150) => {
+        const targetUrl = `${window.location.protocol}//${window.location.host}/order/${qrToken}`;
         return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(targetUrl)}`;
     };
 
     const handleDownloadQR = async (table) => {
-        const imageUrl = getQrImageUrl(table.qr_token, 500); 
+        const imageUrl = getQrImageUrl(table.qr_token, 500);
         const dateStr = new Date().toISOString().slice(0, 10);
         const fileName = `${dateStr}_${store.name}_${table.name}.png`;
-
         try {
             const response = await fetch(imageUrl);
             const blob = await response.blob();
@@ -627,55 +652,114 @@ export function AdminTables({ store, token, fetchStore }) {
         } catch (err) { console.error(err); toast.error("다운로드 중 오류가 발생했습니다."); }
     };
 
+    const TableCard = ({ table, isCounter }) => (
+        <div key={table.id} className={`border-2 rounded-xl p-4 flex flex-col items-center transition shadow-sm ${
+            isCounter
+                ? "border-orange-200 hover:border-orange-400 bg-orange-50"
+                : "border-gray-200 hover:border-indigo-300 bg-white"
+        }`}>
+            <div className="w-24 h-24 bg-white mb-3 cursor-zoom-in overflow-hidden rounded-lg border" onClick={() => setZoomQrTable(table)}>
+                <img src={getQrImageUrl(table.qr_token)} alt="QR Code" className="w-full h-full object-cover hover:scale-110 transition-transform duration-300" />
+            </div>
+            {editingTableId === table.id ? (
+                <div className="flex gap-1 w-full mb-2">
+                    <input className="border p-1 text-xs w-full rounded text-center" value={editingName} onChange={e => setEditingName(e.target.value)} autoFocus />
+                    <button onClick={() => saveEdit(table.id)} className="bg-blue-500 text-white px-1 rounded text-xs">V</button>
+                    <button onClick={() => setEditingTableId(null)} className="bg-gray-300 text-gray-700 px-1 rounded text-xs">X</button>
+                </div>
+            ) : (
+                <h3 className={`font-bold text-lg mb-1 flex items-center gap-1 cursor-pointer ${isCounter ? "hover:text-orange-600" : "hover:text-indigo-600"}`} onClick={() => startEdit(table)}>
+                    {table.name} <span className="text-xs text-gray-400">✏️</span>
+                </h3>
+            )}
+            {isCounter && <span className="text-xs font-bold text-orange-500 bg-orange-100 px-2 py-0.5 rounded-full mb-2">포장 전용 · 선결제</span>}
+            <div className="flex justify-between w-full mt-auto pt-2 border-t gap-2">
+                <button onClick={() => handleDeleteTable(table.id)} className="text-red-400 text-xs hover:text-red-600 hover:underline">삭제</button>
+                <button onClick={() => setZoomQrTable(table)} className={`text-xs font-bold ${isCounter ? "text-orange-500 hover:text-orange-700" : "text-indigo-500 hover:text-indigo-700"}`}>QR 확대</button>
+            </div>
+        </div>
+    );
+
     return (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 pb-20">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800">🪑 테이블 & QR 관리</h2>
-                <div className="flex gap-2">
-                    <input className="border p-2 rounded w-40" placeholder="테이블명 (예: 1번)" value={newTableName} onChange={e=>setNewTableName(e.target.value)} />
-                    <button onClick={handleCreateTable} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700">추가</button>
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 pb-20 space-y-10">
+            {/* 홀 테이블 섹션 */}
+            <div>
+                <div className="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-800">🪑 홀 테이블</h2>
+                        <p className="text-xs text-gray-400 mt-0.5">각 테이블에 QR을 붙여두면 손님이 스캔해서 주문합니다.</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <input
+                            className="border p-2 rounded w-36 text-sm"
+                            placeholder="테이블명 (예: 1번)"
+                            value={newTableName}
+                            onChange={e => setNewTableName(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && handleCreateTable("DINE_IN")}
+                        />
+                        <button onClick={() => handleCreateTable("DINE_IN")} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700 text-sm">추가</button>
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {dineInTables.map(table => <TableCard key={table.id} table={table} isCounter={false} />)}
+                    {dineInTables.length === 0 && <div className="col-span-full text-center py-8 text-gray-400 text-sm">등록된 홀 테이블이 없습니다.</div>}
                 </div>
             </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {store.tables?.map(table => (
-                    <div key={table.id} className="border-2 border-gray-200 rounded-xl p-4 flex flex-col items-center hover:border-indigo-300 transition bg-white shadow-sm">
-                        <div className="w-24 h-24 bg-gray-100 mb-3 cursor-zoom-in overflow-hidden rounded-lg border" onClick={() => setZoomQrTable(table)}>
-                            <img src={getQrImageUrl(table.qr_token)} alt="QR Code" className="w-full h-full object-cover hover:scale-110 transition-transform duration-300" />
-                        </div>
-                        {editingTableId === table.id ? (
-                            <div className="flex gap-1 w-full mb-2">
-                                <input className="border p-1 text-xs w-full rounded text-center" value={editingName} onChange={e=>setEditingName(e.target.value)} autoFocus />
-                                <button onClick={()=>saveEdit(table.id)} className="bg-blue-500 text-white px-1 rounded text-xs">V</button>
-                                <button onClick={()=>setEditingTableId(null)} className="bg-gray-300 text-gray-700 px-1 rounded text-xs">X</button>
-                            </div>
-                        ) : (
-                            <h3 className="font-bold text-lg mb-2 flex items-center gap-1 cursor-pointer hover:text-indigo-600" onClick={()=>startEdit(table)}>
-                                {table.name} <span className="text-xs text-gray-400">✏️</span>
-                            </h3>
-                        )}
-                        <div className="flex justify-between w-full mt-auto pt-2 border-t gap-2">
-                            <button onClick={()=>handleDeleteTable(table.id)} className="text-red-400 text-xs hover:text-red-600 hover:underline">삭제</button>
-                            <button onClick={()=>setZoomQrTable(table)} className="text-indigo-500 text-xs hover:text-indigo-700 font-bold">QR 확대</button>
-                        </div>
+
+            <hr className="border-gray-100" />
+
+            {/* 포장 카운터 QR 섹션 */}
+            <div>
+                <div className="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-800">📦 포장 카운터 QR</h2>
+                        <p className="text-xs text-gray-400 mt-0.5">카운터나 입구에 고정 부착합니다. 여러 명이 동시에 스캔해도 각자 독립 주문됩니다.</p>
                     </div>
-                ))}
-                {store.tables?.length === 0 && <div className="col-span-full text-center py-10 text-gray-400">등록된 테이블이 없습니다.</div>}
+                    <div className="flex gap-2">
+                        <input
+                            className="border p-2 rounded w-36 text-sm"
+                            placeholder="이름 (예: 포장 카운터)"
+                            value={newCounterName}
+                            onChange={e => setNewCounterName(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && handleCreateTable("TAKEOUT_COUNTER")}
+                        />
+                        <button onClick={() => handleCreateTable("TAKEOUT_COUNTER")} className="bg-orange-500 text-white px-4 py-2 rounded font-bold hover:bg-orange-600 text-sm">추가</button>
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {takeoutCounters.map(table => <TableCard key={table.id} table={table} isCounter={true} />)}
+                    {takeoutCounters.length === 0 && <div className="col-span-full text-center py-8 text-gray-400 text-sm">등록된 포장 카운터 QR이 없습니다.</div>}
+                </div>
+                {takeoutCounters.length > 0 && (
+                    <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-xl text-xs text-orange-700">
+                        포장 카운터 QR은 항상 선결제 전용입니다. QR을 인쇄해서 카운터에 부착하세요.
+                    </div>
+                )}
             </div>
 
             {zoomQrTable && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setZoomQrTable(null)}>
                     <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-2xl font-extrabold text-gray-800 mb-2">{zoomQrTable.name}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                            <h3 className="text-2xl font-extrabold text-gray-800">{zoomQrTable.name}</h3>
+                            {zoomQrTable.table_type === "TAKEOUT_COUNTER" && (
+                                <span className="text-xs font-bold text-orange-500 bg-orange-100 px-2 py-0.5 rounded-full">포장 전용</span>
+                            )}
+                        </div>
                         <p className="text-gray-500 mb-6 text-sm">QR코드를 스캔하여 주문하세요</p>
-                        <div className="p-4 border-4 border-black rounded-xl mb-6 bg-white">
+                        <div className={`p-4 border-4 rounded-xl mb-6 bg-white ${zoomQrTable.table_type === "TAKEOUT_COUNTER" ? "border-orange-400" : "border-black"}`}>
                             <img src={getQrImageUrl(zoomQrTable.qr_token, 300)} alt="Large QR" className="w-64 h-64" />
                         </div>
                         <div className="flex gap-3 w-full">
-                            <button onClick={() => handleDownloadQR(zoomQrTable)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-md flex items-center justify-center gap-2">📥 QR 저장</button>
+                            <button
+                                onClick={() => handleDownloadQR(zoomQrTable)}
+                                className={`flex-1 text-white py-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2 ${zoomQrTable.table_type === "TAKEOUT_COUNTER" ? "bg-orange-500 hover:bg-orange-600" : "bg-indigo-600 hover:bg-indigo-700"}`}
+                            >
+                                📥 QR 저장
+                            </button>
                             <button onClick={() => setZoomQrTable(null)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-300">닫기</button>
                         </div>
-                        <p className="mt-4 text-xs text-gray-400 text-center">파일명: {new Date().toISOString().slice(0,10)}_{store.name}_{zoomQrTable.name}.png</p>
+                        <p className="mt-4 text-xs text-gray-400 text-center">파일명: {new Date().toISOString().slice(0, 10)}_{store.name}_{zoomQrTable.name}.png</p>
                     </div>
                 </div>
             )}
@@ -729,17 +813,29 @@ export function AdminSales({ store, token }) {
     const exportCSV = () => {
         if (!stats) return;
         const sections = [
-            ["=== 일별 매출 ===", "날짜,주문건수,매출액"],
-            ...stats.daily_stats.map(d => ["", `${d.date},${d.count},${d.sales}`]),
+            [`=== 요약 ===`, `총매출,주문건수,객단가,직전기간매출,직전기간객단가`],
+            ["", `${stats.total_revenue},${stats.order_count},${stats.average_order_value},${stats.prev_period_revenue},${stats.prev_avg_order_value || 0}`],
             [""],
-            ["=== 요일별 매출 ===", "요일,주문건수,매출액"],
-            ...(stats.weekday_stats || []).map(w => ["", `${w.weekday},${w.count},${w.sales}`]),
+            ["=== 일별 매출 ===", "날짜,주문건수,객단가,매출액"],
+            ...stats.daily_stats.map(d => ["", `${d.date},${d.count},${d.avg_order_value || 0},${d.sales}`]),
             [""],
-            ["=== 시간대별 매출 ===", "시간,매출액"],
-            ...stats.hourly_stats.map(h => ["", `${h.hour}시,${h.sales}`]),
+            ["=== 월별 매출 ===", "월,주문건수,객단가,매출액"],
+            ...stats.monthly_stats.map(m => ["", `${m.month},${m.count},${m.avg_order_value || 0},${m.sales}`]),
+            [""],
+            ["=== 요일별 매출 ===", "요일,주문건수,객단가,매출액"],
+            ...(stats.weekday_stats || []).map(w => ["", `${w.weekday},${w.count},${w.avg_order_value || 0},${w.sales}`]),
+            [""],
+            ["=== 시간대별 매출 ===", "시간,주문건수,객단가,매출액"],
+            ...stats.hourly_stats.map(h => ["", `${h.hour}시,${h.count},${h.avg_order_value || 0},${h.sales}`]),
             [""],
             ["=== 메뉴별 매출 ===", "메뉴명,판매수량,매출액"],
             ...stats.menu_stats.map(m => ["", `${m.name},${m.count},${m.revenue}`]),
+            [""],
+            ["=== 결제수단별 ===", "수단,건수,객단가,매출액"],
+            ...(stats.payment_method_stats || []).map(p => ["", `${p.method},${p.count},${p.avg_order_value || 0},${p.revenue}`]),
+            [""],
+            ["=== 주문유형별 ===", "유형,건수,객단가,매출액"],
+            ...(stats.order_type_stats || []).map(o => ["", `${o.type},${o.count},${o.avg_order_value || 0},${o.revenue}`]),
         ];
         const csv = sections.flat().join("\n");
         const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
@@ -810,7 +906,10 @@ export function AdminSales({ store, token }) {
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
                             <p className="text-gray-500 font-bold mb-1 text-xs">총 주문건수</p>
                             <p className="text-3xl font-black text-gray-800">{stats.order_count}건</p>
-                            <p className="text-gray-400 text-xs mt-2">직전 동기 {stats.prev_period_count || 0}건</p>
+                            <div className="mt-2 flex items-center">
+                                <span className="text-gray-400 text-xs">직전 동기 {stats.prev_period_count || 0}건</span>
+                                <GrowthBadge rate={stats.count_growth_rate} />
+                            </div>
                             <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.03]">🧾</span>
                         </div>
 
@@ -820,8 +919,11 @@ export function AdminSales({ store, token }) {
                                 객단가
                                 <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-md">중요</span>
                             </p>
-                            <p className="text-3xl font-black text-indigo-600">{stats.average_order_value.toLocaleString()}원</p>
-                            <p className="text-gray-400 text-xs mt-2">주문당 평균 결제액</p>
+                            <p className="text-3xl font-black text-purple-600">{stats.average_order_value.toLocaleString()}원</p>
+                            <div className="mt-2 flex items-center">
+                                <span className="text-gray-400 text-xs">직전 동기 {(stats.prev_avg_order_value || 0).toLocaleString()}원</span>
+                                <GrowthBadge rate={stats.aov_growth_rate} />
+                            </div>
                             <span className="absolute right-[-10px] bottom-[-20px] text-7xl opacity-[0.03]">👥</span>
                         </div>
 
@@ -865,7 +967,11 @@ export function AdminSales({ store, token }) {
                                         <div key={i}>
                                             <div className="flex justify-between text-sm mb-1">
                                                 <span className="font-bold text-gray-700">{PAYMENT_METHOD_LABEL[p.method] || p.method}</span>
-                                                <span className="text-gray-500">{p.count}건 · {p.revenue.toLocaleString()}원 <span className="text-indigo-500 font-bold">({pct}%)</span></span>
+                                                <span className="text-gray-500 text-right">
+                                                    {p.count}건 · {p.revenue.toLocaleString()}원
+                                                    {p.avg_order_value > 0 && <span className="ml-1 text-purple-500 font-bold">객단가 {p.avg_order_value.toLocaleString()}원</span>}
+                                                    <span className="ml-1 text-indigo-500 font-bold">({pct}%)</span>
+                                                </span>
                                             </div>
                                             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                                                 <div className="h-full bg-indigo-400 rounded-full transition-all duration-700" style={{ width: `${pct}%` }}></div>
@@ -886,7 +992,11 @@ export function AdminSales({ store, token }) {
                                         <div key={i}>
                                             <div className="flex justify-between text-sm mb-1">
                                                 <span className="font-bold text-gray-700">{ORDER_TYPE_LABEL[o.type] || o.type}</span>
-                                                <span className="text-gray-500">{o.count}건 · {o.revenue.toLocaleString()}원 <span className="text-teal-500 font-bold">({pct}%)</span></span>
+                                                <span className="text-gray-500 text-right">
+                                                    {o.count}건 · {o.revenue.toLocaleString()}원
+                                                    {o.avg_order_value > 0 && <span className="ml-1 text-purple-500 font-bold">객단가 {o.avg_order_value.toLocaleString()}원</span>}
+                                                    <span className="ml-1 text-teal-500 font-bold">({pct}%)</span>
+                                                </span>
                                             </div>
                                             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                                                 <div className="h-full bg-teal-400 rounded-full transition-all duration-700" style={{ width: `${pct}%` }}></div>
@@ -925,6 +1035,7 @@ export function AdminSales({ store, token }) {
                                             <tr className="border-b-2 border-gray-200 text-gray-500 text-sm">
                                                 <th className="pb-3 font-bold">날짜</th>
                                                 <th className="pb-3 font-bold text-right">결제 건수</th>
+                                                <th className="pb-3 font-bold text-right text-purple-600">객단가</th>
                                                 <th className="pb-3 font-bold text-right">매출액</th>
                                             </tr>
                                         </thead>
@@ -933,10 +1044,11 @@ export function AdminSales({ store, token }) {
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
                                                     <td className="py-3 font-bold text-gray-800">{d.date}</td>
                                                     <td className="py-3 text-right text-gray-600 font-medium">{d.count}건</td>
+                                                    <td className="py-3 text-right font-bold text-purple-600">{(d.avg_order_value || 0).toLocaleString()}원</td>
                                                     <td className="py-3 text-right font-black text-indigo-600">{d.sales.toLocaleString()}원</td>
                                                 </tr>
                                             ))}
-                                            {stats.daily_stats.length === 0 && <tr><td colSpan="3" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
+                                            {stats.daily_stats.length === 0 && <tr><td colSpan="4" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -950,6 +1062,7 @@ export function AdminSales({ store, token }) {
                                             <tr className="border-b-2 border-gray-200 text-gray-500 text-sm">
                                                 <th className="pb-3 font-bold">월</th>
                                                 <th className="pb-3 font-bold text-right">결제 건수</th>
+                                                <th className="pb-3 font-bold text-right text-purple-600">객단가</th>
                                                 <th className="pb-3 font-bold text-right">매출액</th>
                                             </tr>
                                         </thead>
@@ -958,10 +1071,11 @@ export function AdminSales({ store, token }) {
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-indigo-50/30 transition">
                                                     <td className="py-3 font-bold text-gray-800">{m.month}</td>
                                                     <td className="py-3 text-right text-gray-600 font-medium">{m.count}건</td>
+                                                    <td className="py-3 text-right font-bold text-purple-600">{(m.avg_order_value || 0).toLocaleString()}원</td>
                                                     <td className="py-3 text-right font-black text-indigo-600">{m.sales.toLocaleString()}원</td>
                                                 </tr>
                                             ))}
-                                            {stats.monthly_stats.length === 0 && <tr><td colSpan="3" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
+                                            {stats.monthly_stats.length === 0 && <tr><td colSpan="4" className="text-center py-10 text-gray-400 font-bold">해당 기간의 매출이 없습니다.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -974,8 +1088,10 @@ export function AdminSales({ store, token }) {
                                     <div className="space-y-3">
                                         {(stats.weekday_stats || []).map((w, idx) => {
                                             const maxSales = Math.max(...(stats.weekday_stats || []).map(x => x.sales)) || 1;
+                                            const maxAov = Math.max(...(stats.weekday_stats || []).map(x => x.avg_order_value || 0)) || 1;
                                             const pct = (w.sales / maxSales) * 100;
                                             const isTop = pct === 100;
+                                            const isHighAov = w.avg_order_value > 0 && (w.avg_order_value / maxAov) >= 0.9;
                                             return (
                                                 <div key={idx} className="flex items-center gap-3 text-sm">
                                                     <span className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-sm shadow-sm shrink-0 ${WEEKDAY_COLOR[idx] || "bg-indigo-400"}`}>
@@ -983,7 +1099,15 @@ export function AdminSales({ store, token }) {
                                                     </span>
                                                     <div className="flex-1">
                                                         <div className="flex justify-between mb-1">
-                                                            <span className="font-bold text-gray-600 text-xs">{w.count}건</span>
+                                                            <span className="font-bold text-gray-600 text-xs flex items-center gap-2">
+                                                                {w.count}건
+                                                                {w.avg_order_value > 0 && (
+                                                                    <span className={`text-xs font-bold ${isHighAov ? "text-purple-600" : "text-gray-400"}`}>
+                                                                        객단가 {w.avg_order_value.toLocaleString()}원
+                                                                        {isHighAov && " 👑"}
+                                                                    </span>
+                                                                )}
+                                                            </span>
                                                             <span className={`font-black text-sm ${isTop ? "text-indigo-700" : "text-gray-700"}`}>
                                                                 {w.sales.toLocaleString()}원
                                                                 {isTop && <span className="ml-1 text-xs text-yellow-500">★ 최고</span>}
@@ -1015,8 +1139,10 @@ export function AdminSales({ store, token }) {
                                                     <div className="flex-1 h-5 bg-gray-100 rounded-md overflow-hidden">
                                                         <div className={`h-full transition-all duration-700 ease-out rounded-md ${isPeak ? "bg-rose-400" : "bg-indigo-400"}`} style={{ width: `${percent}%` }}></div>
                                                     </div>
-                                                    <span className={`w-28 text-right font-bold text-xs shrink-0 ${isPeak ? "text-rose-600" : "text-gray-600"}`}>
-                                                        {h.sales > 0 ? h.sales.toLocaleString() + "원" : "-"}
+                                                    <span className={`w-56 text-right font-bold text-xs shrink-0 ${isPeak ? "text-rose-600" : "text-gray-600"}`}>
+                                                        {h.sales > 0
+                                                            ? <>{h.count}건 · {h.sales.toLocaleString()}원 <span className="text-purple-500">({(h.avg_order_value || 0).toLocaleString()}원)</span></>
+                                                            : "-"}
                                                     </span>
                                                 </div>
                                             );
@@ -1379,6 +1505,20 @@ export function AdminHardwareSettings({ store, token, fetchStore }) {
     const [allowStaffOrder, setAllowStaffOrder] = useState(store?.allow_staff_order ?? true);
     const [saving, setSaving] = useState(false);
     const [copied, setCopied] = useState(null);
+    const [testResult, setTestResult] = useState({ 1: null, 2: null });
+    const [testing, setTesting] = useState({ 1: false, 2: false });
+
+    // 영수증 프린터(1) 연결 설정
+    const [r_type, setRType] = useState(store?.receipt_printer_type || "FILE");
+    const [r_host, setRHost] = useState(store?.receipt_printer_host || "");
+    const [r_port, setRPort] = useState(store?.receipt_printer_port || "9100");
+    const [r_baud, setRBaud] = useState(store?.receipt_printer_baud || 9600);
+
+    // 주방 프린터(2) 연결 설정
+    const [k_type, setKType] = useState(store?.kitchen_printer_type || "FILE");
+    const [k_host, setKHost] = useState(store?.kitchen_printer_host || "");
+    const [k_port, setKPort] = useState(store?.kitchen_printer_port || "9100");
+    const [k_baud, setKBaud] = useState(store?.kitchen_printer_baud || 9600);
 
     const handleSaveHardware = async () => {
         setSaving(true);
@@ -1388,6 +1528,14 @@ export function AdminHardwareSettings({ store, token, fetchStore }) {
                 printer_config: printerConfig,
                 auto_kitchen_print: autoKitchenPrint,
                 allow_staff_order: allowStaffOrder,
+                receipt_printer_type: r_type,
+                receipt_printer_host: r_host,
+                receipt_printer_port: r_port,
+                receipt_printer_baud: Number(r_baud),
+                kitchen_printer_type: k_type,
+                kitchen_printer_host: k_host,
+                kitchen_printer_port: k_port,
+                kitchen_printer_baud: Number(k_baud),
             }, { headers: { Authorization: `Bearer ${token}` } });
             toast.success("하드웨어 설정이 저장되었습니다.");
             fetchStore();
@@ -1395,6 +1543,30 @@ export function AdminHardwareSettings({ store, token, fetchStore }) {
             toast.error("설정 저장 실패");
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleTestPrint = async (printerNum) => {
+        setTesting(p => ({ ...p, [printerNum]: true }));
+        setTestResult(p => ({ ...p, [printerNum]: null }));
+        try {
+            const res = await axios.post(
+                `${API_BASE_URL}/stores/${store.id}/print/test?printer=${printerNum}`,
+                {},
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setTestResult(p => ({ ...p, [printerNum]: { ok: true, data: res.data } }));
+            if (res.data.simulated) {
+                toast("시뮬레이션 출력 완료 (FILE 모드)", { icon: "📄" });
+            } else {
+                toast.success(`프린터 ${printerNum} 테스트 출력 완료`);
+            }
+        } catch (e) {
+            const msg = e.response?.data?.detail || "연결 실패";
+            setTestResult(p => ({ ...p, [printerNum]: { ok: false, msg } }));
+            toast.error(`테스트 실패: ${msg}`);
+        } finally {
+            setTesting(p => ({ ...p, [printerNum]: false }));
         }
     };
 
@@ -1407,14 +1579,122 @@ export function AdminHardwareSettings({ store, token, fetchStore }) {
     const envContent = `SERVER_URL=${window.location.origin.replace(/:\d+$/, ":8000")}
 STORE_ID=${store.id}
 EMAIL=owner@example.com
-PASSWORD=yourpassword
-PRINTER_PORT=`;
+PASSWORD=yourpassword`;
 
     const PRINTER_CONFIGS = [
-        { value: "NONE", label: "프린터 없음", desc: "출력 기능을 사용하지 않습니다.", icon: "🚫" },
-        { value: "UNIFIED", label: "통합 출력", desc: "영수증 프린터 1대로 주방지까지 출력합니다.", icon: "🖨️" },
-        { value: "SEPARATE", label: "분리 출력", desc: "영수증용과 주방용 프린터를 각각 사용합니다.", icon: "🖨️🖨️" },
+        { value: "NONE",     label: "프린터 없음",  desc: "출력 기능을 사용하지 않습니다.",               icon: "🚫" },
+        { value: "UNIFIED",  label: "통합 출력",    desc: "영수증 프린터 1대로 주방지까지 함께 출력합니다.", icon: "🖨️" },
+        { value: "SEPARATE", label: "분리 출력",    desc: "영수증용(Printer 1)과 주방용(Printer 2)를 각각 사용합니다.", icon: "🖨️🖨️" },
     ];
+
+    const CONN_TYPES = [
+        { value: "NETWORK", label: "네트워크 (LAN/Wi-Fi)", icon: "🌐" },
+        { value: "SERIAL",  label: "시리얼 / USB",          icon: "🔌" },
+        { value: "FILE",    label: "테스트 (시뮬레이션)",    icon: "📄" },
+    ];
+
+    const BAUD_RATES = [9600, 19200, 38400, 57600, 115200];
+
+    // 프린터 연결 설정 폼 컴포넌트
+    const PrinterConnectionForm = ({ num, label, type, setType, host, setHost, port, setPort, baud, setBaud }) => (
+        <div className="bg-gray-50 rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <span className="text-lg">🖨️</span>
+                    <div>
+                        <p className="font-extrabold text-gray-800 text-sm">Printer {num} — {label}</p>
+                        <p className="text-xs text-gray-400">{num === 1 ? "계산대 옆 영수증 프린터" : "주방 주문서 프린터"}</p>
+                    </div>
+                </div>
+                <button
+                    onClick={() => handleTestPrint(num)}
+                    disabled={testing[num]}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-lg transition">
+                    {testing[num] ? "출력 중..." : "테스트 출력"}
+                </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+                {/* 연결 방식 */}
+                <div>
+                    <p className="text-xs font-bold text-gray-600 mb-2">연결 방식</p>
+                    <div className="grid grid-cols-3 gap-2">
+                        {CONN_TYPES.map(ct => (
+                            <button key={ct.value} onClick={() => {
+                                setType(ct.value);
+                                if (ct.value === "NETWORK") setPort("9100");
+                            }}
+                                className={`p-3 rounded-xl border-2 text-center transition-all text-xs ${type === ct.value ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300 bg-white"}`}>
+                                <div className="text-xl mb-1">{ct.icon}</div>
+                                <p className={`font-bold text-xs leading-tight ${type === ct.value ? "text-indigo-700" : "text-gray-700"}`}>{ct.label}</p>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 네트워크 설정 */}
+                {type === "NETWORK" && (
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">IP 주소</label>
+                            <input value={host} onChange={e => setHost(e.target.value)}
+                                placeholder="192.168.1.100"
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-400" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">포트</label>
+                            <input value={port} onChange={e => setPort(e.target.value)}
+                                placeholder="9100"
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-400" />
+                        </div>
+                    </div>
+                )}
+
+                {/* 시리얼/USB 설정 */}
+                {type === "SERIAL" && (
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">COM 포트</label>
+                            <input value={port} onChange={e => setPort(e.target.value)}
+                                placeholder="COM3  또는  /dev/ttyUSB0"
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-400" />
+                            <p className="text-xs text-gray-400 mt-1">Windows: COM3 · Linux/Mac: /dev/ttyUSB0</p>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">전송속도 (Baud)</label>
+                            <select value={baud} onChange={e => setBaud(Number(e.target.value))}
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-400">
+                                {BAUD_RATES.map(b => <option key={b} value={b}>{b.toLocaleString()}</option>)}
+                            </select>
+                            <p className="text-xs text-gray-400 mt-1">대부분의 프린터: 9600 또는 115200</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* 테스트 모드 안내 */}
+                {type === "FILE" && (
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                        <span className="text-amber-500 shrink-0">📄</span>
+                        <p className="text-xs text-amber-700 leading-relaxed">
+                            실제 프린터 없이 ESC/POS 출력 내용을 서버 로그에서 확인합니다.<br/>
+                            실제 운영 전 <strong>네트워크</strong> 또는 <strong>시리얼/USB</strong>로 변경하세요.
+                        </p>
+                    </div>
+                )}
+
+                {/* 테스트 결과 */}
+                {testResult[num] && (
+                    <div className={`rounded-xl p-3 text-xs font-mono ${testResult[num].ok ? "bg-green-50 border border-green-200 text-green-800" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                        {testResult[num].ok
+                            ? testResult[num].data?.simulated
+                                ? `✓ 시뮬레이션 완료 (FILE 모드)\n출력 바이트: ${testResult[num].data?.debug_output?.length || 0}자`
+                                : `✓ 프린터 출력 완료`
+                            : `✗ 오류: ${testResult[num].msg}`}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 
     return (
         <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
@@ -1430,8 +1710,8 @@ PRINTER_PORT=`;
                 </div>
                 <div className="p-6 grid grid-cols-2 gap-4">
                     {[
-                        { val: true,  icon: "💻", title: "표준 POS 시스템", desc: "Windows POS기를 중심으로\n프린터와 리더기를 사용합니다." },
-                        { val: false, icon: "📱", title: "모바일/태블릿 전용", desc: "별도의 POS기 없이\n태블릿 화면으로만 운영합니다." },
+                        { val: true,  icon: "💻", title: "표준 POS 시스템", desc: "POS기 사용 · 영수증 자동 출력 생략\n수납 시 포스기 수납 완료 버튼만 표시" },
+                        { val: false, icon: "📱", title: "모바일/태블릿 전용", desc: "POS기 없음 · 결제 후 영수증 자동 출력\n수납 시 카드/현금 선택 후 처리" },
                     ].map(opt => (
                         <button key={String(opt.val)} onClick={() => { setHasPos(opt.val); if (!opt.val) setPrinterConfig("NONE"); }}
                             className={`p-5 rounded-xl border-2 text-left transition-all ${hasPos === opt.val ? "border-indigo-500 bg-indigo-50 shadow-md" : "border-gray-200 hover:border-gray-300"}`}>
@@ -1443,7 +1723,7 @@ PRINTER_PORT=`;
                 </div>
             </div>
 
-            {/* 프린터 설정 — POS 선택 시에만 */}
+            {/* 프린터 구성 선택 */}
             {hasPos && (
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
@@ -1461,21 +1741,51 @@ PRINTER_PORT=`;
                                 {printerConfig === cfg.value && <span className="text-indigo-500 text-xl">✓</span>}
                             </button>
                         ))}
-
-                        {printerConfig !== "NONE" && (
-                            <div className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl mt-2">
-                                <div>
-                                    <p className="font-bold text-indigo-900 text-sm">주방 주문서 자동 출력</p>
-                                    <p className="text-xs text-indigo-500 mt-0.5">주문 접수 즉시 프린터에서 주문서가 출력됩니다.</p>
-                                </div>
-                                <ToggleSwitch checked={autoKitchenPrint} onChange={setAutoKitchenPrint} />
-                            </div>
-                        )}
                     </div>
                 </div>
             )}
 
-            {/* 프린터 에이전트 가이드 — 자동출력 ON일 때 */}
+            {/* Printer 1 연결 설정 — 프린터가 있을 때 */}
+            {hasPos && printerConfig !== "NONE" && (
+                <PrinterConnectionForm
+                    num={1} label="영수증 프린터"
+                    type={r_type} setType={setRType}
+                    host={r_host} setHost={setRHost}
+                    port={r_port} setPort={setRPort}
+                    baud={r_baud} setBaud={setRBaud}
+                />
+            )}
+
+            {/* Printer 2 연결 설정 — 분리 출력일 때만 */}
+            {hasPos && printerConfig === "SEPARATE" && (
+                <PrinterConnectionForm
+                    num={2} label="주방 프린터"
+                    type={k_type} setType={setKType}
+                    host={k_host} setHost={setKHost}
+                    port={k_port} setPort={setKPort}
+                    baud={k_baud} setBaud={setKBaud}
+                />
+            )}
+
+            {/* 자동 출력 토글 */}
+            {hasPos && printerConfig !== "NONE" && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <h3 className="font-extrabold text-gray-800">⚡ 자동 출력 설정</h3>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="font-bold text-gray-800 text-sm">주방 주문서 자동 출력</p>
+                                <p className="text-xs text-gray-500 mt-0.5">주문 접수 즉시 주방 프린터에서 자동으로 출력됩니다.</p>
+                            </div>
+                            <ToggleSwitch checked={autoKitchenPrint} onChange={setAutoKitchenPrint} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 프린터 에이전트 가이드 */}
             {hasPos && printerConfig !== "NONE" && autoKitchenPrint && (
                 <div className="bg-slate-900 rounded-2xl overflow-hidden shadow-lg">
                     <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
@@ -1485,25 +1795,20 @@ PRINTER_PORT=`;
                     </div>
                     <div className="p-6 space-y-5 text-sm">
                         <p className="text-slate-300 leading-relaxed">
-                            자동 출력은 <span className="text-white font-bold">toryOrderPrinterAgent</span>가 POS PC에서 실행 중이어야 동작합니다.<br/>
-                            아래 순서대로 설정하세요.
+                            자동 출력은 <span className="text-white font-bold">toryOrderPrinterAgent</span>가 POS PC에서 실행 중이어야 동작합니다.
                         </p>
-
-                        {/* Step 1 */}
                         <div>
                             <p className="text-slate-400 font-bold mb-2">① 패키지 설치</p>
                             <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
-                                <code className="text-green-400 font-mono text-xs">pip install -r requirements.txt</code>
-                                <button onClick={() => copyToClipboard("pip install -r requirements.txt", "install")}
+                                <code className="text-green-400 font-mono text-xs">pip install python-escpos</code>
+                                <button onClick={() => copyToClipboard("pip install python-escpos", "install")}
                                     className="text-slate-400 hover:text-white text-xs shrink-0 transition">
                                     {copied === "install" ? "✓ 복사됨" : "복사"}
                                 </button>
                             </div>
                         </div>
-
-                        {/* Step 2 */}
                         <div>
-                            <p className="text-slate-400 font-bold mb-2">② .env 파일 생성 <span className="text-slate-500 font-normal">(agent.py 와 같은 폴더에)</span></p>
+                            <p className="text-slate-400 font-bold mb-2">② .env 파일 생성</p>
                             <div className="bg-slate-800 rounded-xl p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="text-slate-400 text-xs font-mono">.env</span>
@@ -1516,13 +1821,10 @@ PRINTER_PORT=`;
 {`SERVER_URL=${window.location.origin.replace(/:\d+$/, ":8000")}
 STORE_ID=${store.id}
 EMAIL=`}<span className="text-yellow-400">owner@example.com</span>{`
-PASSWORD=`}<span className="text-yellow-400">yourpassword</span>{`
-PRINTER_PORT=`}<span className="text-slate-500"># 예: /dev/usb/lp0 또는 COM3 (비워두면 콘솔 출력)</span>
+PASSWORD=`}<span className="text-yellow-400">yourpassword</span>
                                 </pre>
                             </div>
                         </div>
-
-                        {/* Step 3 */}
                         <div>
                             <p className="text-slate-400 font-bold mb-2">③ 에이전트 실행</p>
                             <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
@@ -1533,11 +1835,9 @@ PRINTER_PORT=`}<span className="text-slate-500"># 예: /dev/usb/lp0 또는 COM3 
                                 </button>
                             </div>
                         </div>
-
                         <div className="flex items-start gap-2 bg-slate-800 rounded-xl p-3">
                             <span className="text-yellow-400 shrink-0">💡</span>
                             <p className="text-slate-400 text-xs leading-relaxed">
-                                에이전트는 토큰 만료 및 연결 끊김 시 자동으로 재접속합니다.<br/>
                                 POS PC가 켜질 때 자동 실행되도록 작업 스케줄러(Windows) 또는 systemd(Linux)에 등록하면 편리합니다.
                             </p>
                         </div>

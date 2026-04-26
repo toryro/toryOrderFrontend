@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
-import toast from "react-hot-toast"; // 🔥 임포트 추가
+import toast from "react-hot-toast";
 
 function LoginPage() {
   const [email, setEmail] = useState("");
@@ -95,6 +95,11 @@ function LoginPage() {
           >
             로그인
           </button>
+          <div className="text-center pt-1">
+            <Link to="/forgot-password" className="text-sm text-gray-400 hover:text-indigo-500 font-bold transition">
+              비밀번호를 잊으셨나요?
+            </Link>
+          </div>
         </div>
       </div>
     </div>

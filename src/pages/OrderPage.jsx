@@ -29,6 +29,7 @@ function OrderPage() {
     const [orderType, setOrderType] = useState("DINE_IN");
     const [orderTypeSetting, setOrderTypeSetting] = useState("SELECTABLE");
     const [isVirtual, setIsVirtual] = useState(false);
+    const [tableType, setTableType] = useState("DINE_IN");
     const [sessionExpired, setSessionExpired] = useState(false);
     const sessionTokenRef = useRef(null);
 
@@ -51,18 +52,18 @@ function OrderPage() {
             try {
                 const res = await axios.get(`${API_BASE_URL}/tables/by-token/${token}`);
                 const virtual = res.data.is_virtual === true;
+                const tType = res.data.table_type || "DINE_IN";
                 setIsVirtual(virtual);
+                setTableType(tType);
                 setTableInfo({ id: res.data.table_id, name: res.data.label });
                 setOrderTypeSetting(res.data.order_type_setting);
 
-                if (virtual || res.data.order_type_setting === "TAKEOUT_ONLY") {
+                if (virtual || tType === "TAKEOUT_COUNTER" || res.data.order_type_setting === "TAKEOUT_ONLY") {
                     setOrderType("TAKEOUT");
                 } else {
                     setOrderType("DINE_IN");
                 }
 
-                // 홀 테이블: sessionStorage에 세션 토큰이 없을 때만 새로 발급
-                // 새로 고침 시에는 기존 토큰을 재사용 (퇴석 후 차단 유지)
                 if (!virtual) {
                     const storageKey = `ts_${token}`;
                     let existingToken = sessionStorage.getItem(storageKey);
@@ -104,10 +105,12 @@ function OrderPage() {
         if (impUid && !isProcessing.current) {
             isProcessing.current = true;
             if (isSuccess) {
+                const redirectSessionToken = sessionStorage.getItem(`ts_${token}`);
                 axios.post(`${API_BASE_URL}/payments/complete`, {
                     imp_uid: impUid,
                     merchant_uid: merchantUid,
                     virtual_session_token: isVirtual ? token : undefined,
+                    session_token: tableType === "TAKEOUT_COUNTER" ? redirectSessionToken : undefined,
                 })
                 .then((res) => {
                     const dailyNum = res.data.daily_number || "확인중";
@@ -236,8 +239,9 @@ function OrderPage() {
         isProcessing.current = true; 
 
         const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        // 가상세션(포장 1회용)은 항상 선불 강제
-        const isPostPayStore = !isVirtual && store.payment_policy === "POST_PAY";
+        const isTakeoutCounter = tableType === "TAKEOUT_COUNTER";
+        // 가상 세션(1회용 링크)과 포장 카운터는 항상 선불 강제
+        const isPostPayStore = !isVirtual && !isTakeoutCounter && store.payment_policy === "POST_PAY";
 
         const itemsData = cart.map(item => ({
             menu_id: item.menuId,
@@ -259,11 +263,14 @@ function OrderPage() {
             const tempDailyNumber = orderRes.data.daily_number;
 
             if (isPostPayStore) {
-                setCompletedOrder(tempDailyNumber); 
-                setCart([]); 
+                setCompletedOrder(tempDailyNumber);
+                setCart([]);
                 setIsCartOpen(false);
-                isProcessing.current = false; 
-                toast.success("주문이 접수되었습니다. 결제는 나갈 때 카운터에서 해주세요!");
+                isProcessing.current = false;
+                const payMsg = store.has_pos
+                    ? "주문이 접수되었습니다. 포스기에서 결제해주세요!"
+                    : "주문이 접수되었습니다. 결제는 나갈 때 카운터에서 해주세요!";
+                toast.success(payMsg);
                 return;
             }
 
@@ -296,6 +303,7 @@ function OrderPage() {
                             imp_uid: rsp.imp_uid,
                             merchant_uid: rsp.merchant_uid,
                             virtual_session_token: isVirtual ? token : undefined,
+                            session_token: isTakeoutCounter ? sessionTokenRef.current : undefined,
                         });
                         
                         setCompletedOrder(tempDailyNumber);
@@ -350,15 +358,20 @@ function OrderPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 pb-28 font-sans">
-            <div className={`shadow-sm sticky top-0 z-10 px-4 py-4 flex justify-between items-center ${isVirtual ? "bg-orange-500 text-white" : "bg-white"}`}>
+            <div className={`shadow-sm sticky top-0 z-10 px-4 py-4 flex justify-between items-center ${isVirtual || tableType === "TAKEOUT_COUNTER" ? "bg-orange-500 text-white" : "bg-white"}`}>
                 <div>
-                    <h1 className={`font-extrabold text-xl ${isVirtual ? "text-white" : "text-gray-800"}`}>{store.name}</h1>
-                    <p className={`text-sm font-bold ${isVirtual ? "text-orange-100" : "text-indigo-600"}`}>
-                        {isVirtual ? "🎁 포장 주문 (선결제 필수)" : `📍 ${tableInfo?.name}`}
+                    <h1 className={`font-extrabold text-xl ${isVirtual || tableType === "TAKEOUT_COUNTER" ? "text-white" : "text-gray-800"}`}>{store.name}</h1>
+                    <p className={`text-sm font-bold ${isVirtual || tableType === "TAKEOUT_COUNTER" ? "text-orange-100" : "text-indigo-600"}`}>
+                        {isVirtual ? "🎁 포장 주문 (선결제 필수)"
+                            : tableType === "TAKEOUT_COUNTER" ? `📦 ${tableInfo?.name} (선결제 필수)`
+                            : `📍 ${tableInfo?.name}`}
                     </p>
                 </div>
                 {isVirtual && (
                     <span className="bg-white text-orange-600 text-xs font-black px-3 py-1.5 rounded-full shadow-sm">1회용 링크</span>
+                )}
+                {tableType === "TAKEOUT_COUNTER" && (
+                    <span className="bg-white text-orange-600 text-xs font-black px-3 py-1.5 rounded-full shadow-sm">포장 전용</span>
                 )}
             </div>
 
@@ -492,6 +505,14 @@ function OrderPage() {
                                         <div>
                                             <p className="font-black text-orange-700 text-sm">포장 전용 주문 (선결제 필수)</p>
                                             <p className="text-orange-500 text-xs mt-0.5">결제 후 이 링크는 자동으로 만료됩니다.</p>
+                                        </div>
+                                    </div>
+                                ) : tableType === "TAKEOUT_COUNTER" ? (
+                                    <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 p-3 rounded-xl">
+                                        <span className="text-2xl">📦</span>
+                                        <div>
+                                            <p className="font-black text-orange-700 text-sm">포장 카운터 주문 (선결제 필수)</p>
+                                            <p className="text-orange-500 text-xs mt-0.5">결제 완료 후 카운터에서 수령하세요.</p>
                                         </div>
                                     </div>
                                 ) : orderTypeSetting === "SELECTABLE" ? (

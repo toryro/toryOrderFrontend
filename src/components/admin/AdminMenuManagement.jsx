@@ -117,8 +117,16 @@ export default function AdminMenuManagement({ store, token, fetchStore, user }) 
     };
 
     const handleImageUpload = async (e, setFunc) => {
-        const formData = new FormData(); formData.append("file", e.target.files[0]);
-        const res = await axios.post(`${API_BASE_URL}/upload/`, formData); setFunc(res.data.url);
+        const formData = new FormData();
+        formData.append("file", e.target.files[0]);
+        try {
+            const res = await axios.post(`${API_BASE_URL}/upload/`, formData, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setFunc(res.data.url);
+        } catch {
+            toast.error("이미지 업로드에 실패했습니다.");
+        }
     };
 
     const openEditModal = (menu) => {

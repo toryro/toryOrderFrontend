@@ -10,13 +10,15 @@ export function TableDashboard() {
     const navigate = useNavigate(); 
     
     // ✨ 테이블 목록과 활성화된(미완료) 주문 목록을 함께 관리합니다.
-    const [tables, setTables] = useState([]); 
-    const [activeOrders, setActiveOrders] = useState([]); 
+    const [tables, setTables] = useState([]);
+    const [activeOrders, setActiveOrders] = useState([]);
+    const [storeInfo, setStoreInfo] = useState(null);
     const token = localStorage.getItem("token");
 
     const [selectedTable, setSelectedTable] = useState(null);
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [clearModal, setClearModal] = useState({ isOpen: false, tableId: null, tableName: "", pendingOrders: [] });
+    const [collectModal, setCollectModal] = useState({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] });
     const [takeoutLink, setTakeoutLink] = useState(null);
     const [takeoutLoading, setTakeoutLoading] = useState(false);
     
@@ -25,12 +27,14 @@ export function TableDashboard() {
     // ✨ [핵심 로직] 테이블 현황과 진행 중인 주문 내역을 동시에 가져옵니다.
     const fetchDashboardData = async () => {
         try {
-            const [tablesRes, ordersRes] = await Promise.all([
+            const [tablesRes, ordersRes, storeRes] = await Promise.all([
                 axios.get(`${API_BASE_URL}/stores/${storeId}/tables`, { headers: { Authorization: `Bearer ${token}` } }),
-                axios.get(`${API_BASE_URL}/stores/${storeId}/orders`, { headers: { Authorization: `Bearer ${token}` } })
+                axios.get(`${API_BASE_URL}/stores/${storeId}/orders`, { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get(`${API_BASE_URL}/stores/${storeId}`, { headers: { Authorization: `Bearer ${token}` } }),
             ]);
             setTables(tablesRes.data);
             setActiveOrders(ordersRes.data);
+            setStoreInfo(storeRes.data);
         } catch (err) {
             console.error("현황판 데이터를 불러오는데 실패했습니다.", err);
         }
@@ -46,8 +50,8 @@ export function TableDashboard() {
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (["NEW_ORDER", "TABLE_STATUS_CHANGED", "ORDER_COMPLETED"].includes(data.type)) {
-                fetchDashboardData(); // 데이터 갱신 시 두 가지 모두 업데이트
+            if (["NEW_ORDER", "TABLE_STATUS_CHANGED", "ORDER_COMPLETED", "PAYMENT_COLLECTED"].includes(data.type)) {
+                fetchDashboardData();
             }
         };
 
@@ -82,6 +86,33 @@ export function TableDashboard() {
             };
         }
     }, [storeId]);
+
+    const handleOpenCollect = (tableId, tableName) => {
+        const deferredOrders = activeOrders.filter(
+            o => o.table_id === tableId && !o.is_completed && o.payment_status === "DEFERRED"
+        );
+        setCollectModal({ isOpen: true, tableId, tableName, deferredOrders });
+    };
+
+    const handleCollectPayment = async (paymentMethod) => {
+        const { deferredOrders } = collectModal;
+        try {
+            await Promise.all(
+                deferredOrders.map(o =>
+                    axios.patch(
+                        `${API_BASE_URL}/orders/${o.id}/collect-payment`,
+                        { payment_method: paymentMethod },
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                )
+            );
+            setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] });
+            toast.success("수납이 완료되었습니다!");
+            fetchDashboardData();
+        } catch {
+            toast.error("수납 처리 실패");
+        }
+    };
 
     const handleClearTable = (tableId, tableName) => {
         const pendingOrders = activeOrders.filter(o => o.table_id === tableId && !o.is_completed);
@@ -187,27 +218,28 @@ export function TableDashboard() {
                     {tables.map(table => {
                         const config = getStatusConfig(table.current_status);
                         const isOccupied = table.current_status !== "EMPTY";
-                        
-                        // ✨ [알림 배지 로직] 이 테이블에 소속된 미완료 주문의 개수를 계산합니다.
+
                         const unservedOrdersCount = activeOrders.filter(o => o.table_id === table.id && !o.is_completed).length;
-                        // 테이블 상태가 '식사 중(OCCUPIED)'인데 미완료 주문이 있다면 알람을 띄웁니다.
                         const needsAdditionalServing = table.current_status === "OCCUPIED" && unservedOrdersCount > 0;
 
+                        const deferredOrders = activeOrders.filter(o => o.table_id === table.id && !o.is_completed && o.payment_status === "DEFERRED");
+                        const hasDeferred = deferredOrders.length > 0;
+                        const deferredTotal = deferredOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
+
                         return (
-                            <div key={table.id} className={`rounded-2xl border-2 flex flex-col justify-between transition-all duration-300 ${config.bg} ${config.border} shadow-sm hover:shadow-md h-[220px] relative overflow-visible`}>
-                                
-                                {/* ✨ 추가 서빙이 필요할 때 우측 상단에 튀어나오는 빨간색 알림 배지 */}
+                            <div key={table.id} className={`rounded-2xl border-2 flex flex-col justify-between transition-all duration-300 ${config.bg} ${config.border} shadow-sm hover:shadow-md min-h-[220px] relative overflow-visible`}>
+
                                 {needsAdditionalServing && (
                                     <div className="absolute -top-3 -right-3 bg-red-600 text-white font-black text-[11px] px-3 py-1.5 rounded-full shadow-[0_5px_15px_rgba(220,38,38,0.5)] border-2 border-white z-10 animate-bounce flex items-center gap-1">
                                         <span>🚨</span> 추가 서빙 {unservedOrdersCount}건
                                     </div>
                                 )}
-                                
+
                                 <div className="p-4 flex justify-between items-start">
                                     <h3 className={`font-black text-xl ${config.textCol}`}>{table.name}</h3>
                                     <span className={`text-3xl ${config.pulse ? 'animate-pulse' : ''}`}>{config.icon}</span>
                                 </div>
-                                
+
                                 <div className="px-4 pb-2 flex-1 flex flex-col justify-center relative">
                                     <div className={`font-extrabold text-lg ${config.textCol}`}>{config.text}</div>
                                     {isOccupied && table.occupied_at && (
@@ -215,18 +247,33 @@ export function TableDashboard() {
                                             <span>⏱️</span> 착석: {formatTime(table.occupied_at)}
                                         </div>
                                     )}
+                                    {hasDeferred && (
+                                        <div className="mt-2 flex items-center gap-1.5 bg-amber-100 border border-amber-300 rounded-lg px-2 py-1">
+                                            <span className="text-sm">💴</span>
+                                            <span className="text-xs font-black text-amber-800">미수납 {deferredTotal.toLocaleString()}원</span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="p-2 border-t border-black/5 bg-white/60 flex flex-col gap-2">
-                                    <button 
+                                    <button
                                         onClick={() => handleOpenOrder(table)}
                                         className={`w-full text-white py-2 rounded-lg text-sm font-bold shadow-sm active:scale-95 transition ${needsAdditionalServing ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                                     >
                                         {needsAdditionalServing ? '🛍️ 내역 확인/서빙 완료' : '🛍️ 직원 주문 넣기'}
                                     </button>
 
+                                    {hasDeferred && (
+                                        <button
+                                            onClick={() => handleOpenCollect(table.id, table.name)}
+                                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg text-sm font-bold shadow-sm active:scale-95 transition"
+                                        >
+                                            💴 수납 처리
+                                        </button>
+                                    )}
+
                                     {isOccupied ? (
-                                        <button 
+                                        <button
                                             onClick={() => handleClearTable(table.id, table.name)}
                                             className="w-full bg-slate-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-black shadow-sm transition-transform active:scale-95"
                                         >
@@ -264,6 +311,57 @@ export function TableDashboard() {
                     onConfirm={executeClearTable}
                     onCancel={() => setClearModal(prev => ({ ...prev, isOpen: false }))}
                 />
+            )}
+
+            {collectModal.isOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] })}>
+                    <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="bg-emerald-700 text-white p-5 font-bold text-lg flex justify-between items-center">
+                            <span className="flex items-center gap-2"><span className="text-2xl">💴</span> 수납 처리</span>
+                            <button onClick={() => setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] })} className="text-emerald-200 hover:text-white text-2xl">&times;</button>
+                        </div>
+                        <div className="p-6 flex flex-col gap-4">
+                            <div className="bg-gray-50 rounded-xl p-4 text-center">
+                                <p className="text-sm text-gray-500 mb-1">{collectModal.tableName} · 미수납 {collectModal.deferredOrders.length}건</p>
+                                <p className="text-3xl font-black text-gray-800">
+                                    {collectModal.deferredOrders.reduce((s, o) => s + (o.total_price || 0), 0).toLocaleString()}
+                                    <span className="text-lg font-bold ml-1">원</span>
+                                </p>
+                            </div>
+
+                            {storeInfo?.has_pos ? (
+                                <button
+                                    onClick={() => handleCollectPayment("POS")}
+                                    className="w-full py-4 rounded-xl font-black text-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
+                                >
+                                    포스기 수납 완료 ✅
+                                </button>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        onClick={() => handleCollectPayment("card")}
+                                        className="py-4 rounded-xl font-black text-lg bg-indigo-500 hover:bg-indigo-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                    >
+                                        <span className="text-2xl">💳</span> 카드
+                                    </button>
+                                    <button
+                                        onClick={() => handleCollectPayment("cash")}
+                                        className="py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                    >
+                                        <span className="text-2xl">💵</span> 현금
+                                    </button>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={() => setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] })}
+                                className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
+                            >
+                                취소
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {takeoutLink && (
