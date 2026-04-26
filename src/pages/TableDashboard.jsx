@@ -23,6 +23,8 @@ export function TableDashboard() {
     const [takeoutLoading, setTakeoutLoading] = useState(false);
     
     const wsRef = useRef(null);
+    const reconnectTimeout = useRef(null);
+    const reconnectAttempt = useRef(0);
 
     // ✨ [핵심 로직] 테이블 현황과 진행 중인 주문 내역을 동시에 가져옵니다.
     const fetchDashboardData = async () => {
@@ -45,20 +47,30 @@ export function TableDashboard() {
         const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const baseUrl = API_BASE_URL.replace(/^https?:\/\//, '');
         const wsUrl = `${wsProtocol}//${baseUrl}/ws/${storeId}?token=${token}`;
-        
+
         const ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            reconnectAttempt.current = 0;
+        };
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            if (data.type === "ping") return;
             if (["NEW_ORDER", "TABLE_STATUS_CHANGED", "ORDER_COMPLETED", "PAYMENT_COLLECTED"].includes(data.type)) {
                 fetchDashboardData();
             }
         };
 
-        ws.onclose = () => {
-            setTimeout(() => connectWebSocket(), 3000);
+        ws.onerror = () => ws.close();
+
+        ws.onclose = (event) => {
+            if (event.code === 1008) return; // 인증 실패 — 재연결해도 동일하게 거절됨
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000) + Math.random() * 1000;
+            reconnectAttempt.current += 1;
+            reconnectTimeout.current = setTimeout(() => connectWebSocket(), delay);
         };
-        
+
         wsRef.current = ws;
     };
 
@@ -81,8 +93,9 @@ export function TableDashboard() {
             // [정리] 컴포넌트가 사라질 때(unmount) 실행
             return () => {
                 clearInterval(interval);
-                window.removeEventListener('focus', handleFocus); // 이벤트 제거
-                if (wsRef.current) wsRef.current.close();
+                window.removeEventListener('focus', handleFocus);
+                if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+                if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
             };
         }
     }, [storeId]);

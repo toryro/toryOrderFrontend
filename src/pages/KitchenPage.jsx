@@ -21,6 +21,7 @@ function KitchenPage() {
     const audioRef = useRef(null);
     const wsRef = useRef(null);
     const reconnectTimeout = useRef(null);
+    const reconnectAttempt = useRef(0);
     
     const myClientId = useRef(`client_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
     const [mutedDelays, setMutedDelays] = useState([]);
@@ -162,12 +163,15 @@ function KitchenPage() {
 
         ws.onopen = () => {
             setIsConnected(true);
+            reconnectAttempt.current = 0;
             if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
         };
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-    
+
+            if (data.type === "ping") return;
+
             // 1. [신규] 테이블 퇴석(비우기)으로 인한 강제 주문 취소 신호
             if (data.type === "TABLE_STATUS_CHANGED" && data.message === "CANCEL_PENDING_ORDERS") {
                 // 주방 리스트에서 해당 테이블 주문을 즉시 제거
@@ -226,11 +230,14 @@ function KitchenPage() {
             }
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
             setIsConnected(false);
-            reconnectTimeout.current = setTimeout(() => connectWebSocket(), 3000);
+            if (event.code === 1008) return; // 인증 실패 — 재연결해도 동일하게 거절됨
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000) + Math.random() * 1000;
+            reconnectAttempt.current += 1;
+            reconnectTimeout.current = setTimeout(() => connectWebSocket(), delay);
         };
-        ws.onerror = () => ws.close(); 
+        ws.onerror = () => ws.close();
         wsRef.current = ws;
     };
 
