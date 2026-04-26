@@ -13,6 +13,16 @@ import OrderPage from "./pages/OrderPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 
+// JWT payload를 디코딩해서 만료 여부를 클라이언트에서 사전 확인
+function isTokenExpired(token) {
+    try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        return payload.exp * 1000 < Date.now();
+    } catch {
+        return true;
+    }
+}
+
 // === 🛡️ 보호된 라우트 (권한 체크) ===
 function ProtectedRoute({ children, allowedRoles }) {
     const token = localStorage.getItem("token");
@@ -25,13 +35,19 @@ function ProtectedRoute({ children, allowedRoles }) {
             return;
         }
 
-        // 내 정보 조회하여 권한 확인
-        axios.get(`${API_BASE_URL}/users/me`, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
+        // 클라이언트 사이드 만료 사전 체크 (서버 요청 전에 확인)
+        if (isTokenExpired(token)) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("refreshToken");
+            sessionStorage.setItem("sessionExpired", "세션이 만료되었습니다. 다시 로그인해주세요.");
+            setIsLoading(false);
+            return;
+        }
+
+        // 내 정보 조회하여 권한 확인 (인터셉터가 Authorization 헤더 자동 첨부)
+        axios.get(`${API_BASE_URL}/users/me`)
         .then(res => {
             const userRole = res.data.role;
-            // 허용된 역할 목록에 내 역할이 있는지 확인
             if (allowedRoles.includes(userRole)) {
                 setIsAllowed(true);
             }
@@ -39,7 +55,6 @@ function ProtectedRoute({ children, allowedRoles }) {
         })
         .catch((err) => {
             console.error("Auth Error:", err);
-            localStorage.removeItem("token"); // 토큰 만료시 삭제
             setIsLoading(false);
         });
     }, [token, allowedRoles]);

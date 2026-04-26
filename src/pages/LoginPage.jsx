@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
@@ -8,6 +8,15 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
+
+  // 세션 만료로 튕긴 경우 안내 토스트 표시
+  useEffect(() => {
+    const msg = sessionStorage.getItem("sessionExpired");
+    if (msg) {
+      toast.error(msg, { duration: 4000 });
+      sessionStorage.removeItem("sessionExpired");
+    }
+  }, []);
 
   const handleLogin = async () => {
     // 💡 입력값 빈칸 체크 추가 (UX 개선)
@@ -28,7 +37,9 @@ function LoginPage() {
         error: '로그인 실패! 이메일과 비밀번호를 확인해주세요.',
     }).then(async (res) => {
         const token = res.data.access_token;
+        const refreshToken = res.data.refresh_token;
         localStorage.setItem("token", token);
+        if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
 
         try {
             const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
