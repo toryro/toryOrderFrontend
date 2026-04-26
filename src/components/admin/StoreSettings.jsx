@@ -1418,24 +1418,124 @@ export function AdminUsers({ store, token }) {
 
 // 7. 주문/결제 내역 및 환불 (UI 개선 및 원버튼 스마트 취소 적용)
 export function AdminOrders({ store, token }) {
+    const today = new Date().toISOString().slice(0, 10);
+    const [startDate, setStartDate] = useState(today);
+    const [endDate, setEndDate] = useState(today);
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(false);
-    
-    // ✨ 취소 방식 선택 모달용 상태 (새로 추가됨)
+    const [detailOrder, setDetailOrder] = useState(null);
+    const [reprinting, setReprinting] = useState(false);
+
+    // 취소 방식 선택 모달용 상태
     const [cancelActionOrder, setCancelActionOrder] = useState(null);
     // 메뉴별 부분 취소 모달용 상태
     const [cancelModal, setCancelModal] = useState({ isOpen: false, order: null, selectedItemIds: [], reason: "" });
+    // 검색 필터
+    const [searchQuery, setSearchQuery] = useState("");
+    // 후불 수납 모달
+    const [collectModal, setCollectModal] = useState(null); // { order, method }
 
-    const fetchOrders = async () => {
+    const filteredOrders = orders.filter(o => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return (
+            (o.table_name || "").toLowerCase().includes(q) ||
+            o.items?.some(i => i.menu_name.toLowerCase().includes(q)) ||
+            String(o.daily_number).includes(q)
+        );
+    });
+
+    const setRange = (type) => {
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        if (type === "today") {
+            setStartDate(todayStr); setEndDate(todayStr);
+        } else if (type === "yesterday") {
+            const d = new Date(now); d.setDate(d.getDate() - 1);
+            const s = d.toISOString().slice(0, 10);
+            setStartDate(s); setEndDate(s);
+        } else if (type === "week") {
+            const d = new Date(now); d.setDate(d.getDate() - 6);
+            setStartDate(d.toISOString().slice(0, 10)); setEndDate(todayStr);
+        } else if (type === "month") {
+            setStartDate(`${todayStr.slice(0, 7)}-01`); setEndDate(todayStr);
+        }
+    };
+
+    const fetchOrders = async (sd = startDate, ed = endDate) => {
         setLoading(true);
         try {
-            const res = await axios.get(`${API_BASE_URL}/stores/${store.id}/orders/history`, { headers: { Authorization: `Bearer ${token}` } });
+            const res = await axios.get(
+                `${API_BASE_URL}/stores/${store.id}/orders/history?start_date=${sd}&end_date=${ed}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
             setOrders(res.data);
         } catch (err) { toast.error("주문 내역을 불러오지 못했습니다."); }
         finally { setLoading(false); }
     };
 
-    useEffect(() => { fetchOrders(); }, []);
+    useEffect(() => { fetchOrders(); }, [startDate, endDate]);
+
+    // ESC 프린터 재출력
+    const handleEscReprint = async (order) => {
+        setReprinting(true);
+        try {
+            await axios.post(
+                `${API_BASE_URL}/stores/${store.id}/print/receipt?order_id=${order.id}`,
+                {},
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("영수증이 출력됩니다.");
+        } catch { toast.error("프린터 출력에 실패했습니다. 브라우저 인쇄를 이용해주세요."); }
+        finally { setReprinting(false); }
+    };
+
+    // 브라우저 인쇄 재출력
+    const handleBrowserReprint = (order) => {
+        const ORDER_TYPE = { DINE_IN: "홀", TAKEOUT: "포장" };
+        const PAY_METHOD = { card: "카드", CARD: "카드", cash: "현금", CASH: "현금", 후불: "후불", 기타: "기타" };
+        const timeStr = new Date(order.created_at).toLocaleString("ko-KR");
+        const activeItems = order.items.filter(i => !i.is_cancelled);
+        const paid = order.paid_amount || order.total_price || 0;
+
+        const rows = activeItems.map(i => `
+            <tr>
+                <td style="padding:4px 0">${i.menu_name}</td>
+                <td style="padding:4px 0;text-align:center">×${i.quantity}</td>
+                <td style="padding:4px 0;text-align:right">${(i.price * i.quantity).toLocaleString()}원</td>
+            </tr>
+            ${i.options_desc ? i.options_desc.split(",").filter(o=>o.trim()).map(o=>`
+            <tr><td colspan="3" style="padding:1px 0 1px 12px;font-size:11px;color:#666">└ ${o.trim()}</td></tr>`).join("") : ""}
+        `).join("");
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>영수증</title>
+        <style>body{font-family:monospace;font-size:13px;width:280px;margin:0 auto;padding:12px}
+        h2{text-align:center;font-size:15px;margin:0 0 6px}
+        .divider{border-top:1px dashed #333;margin:6px 0}
+        table{width:100%;border-collapse:collapse}
+        .total{font-size:16px;font-weight:bold}
+        @media print{body{width:100%}}</style></head>
+        <body>
+        <h2>${store.name || "매장"}</h2>
+        <div class="divider"></div>
+        <table><tr><td>테이블</td><td style="text-align:right">${order.table_name} (${ORDER_TYPE[order.order_type] || order.order_type})</td></tr>
+        <tr><td>주문번호</td><td style="text-align:right">#${order.id} (${order.daily_number}번)</td></tr>
+        <tr><td>일시</td><td style="text-align:right">${timeStr}</td></tr></table>
+        <div class="divider"></div>
+        <table>${rows}</table>
+        <div class="divider"></div>
+        <table>
+        <tr class="total"><td>합계</td><td style="text-align:right">${paid.toLocaleString()}원</td></tr>
+        ${order.payment_method ? `<tr><td>결제수단</td><td style="text-align:right">${PAY_METHOD[order.payment_method] || order.payment_method}</td></tr>` : ""}
+        </table>
+        <div class="divider"></div>
+        <p style="text-align:center;font-size:12px">감사합니다!</p>
+        <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script>
+        </body></html>`;
+
+        const w = window.open("", "_blank", "width=340,height=600");
+        if (w) { w.document.write(html); w.document.close(); }
+    };
 
     const handleFullCancel = async (order) => {
         if (!window.confirm(`[전체 취소]\n정말 ${order.total_price.toLocaleString()}원 결제를 전체 취소하시겠습니까?\n(주방 화면에서도 즉시 삭제됩니다)`)) return;
@@ -1472,11 +1572,11 @@ export function AdminOrders({ store, token }) {
         if (cancelModal.selectedItemIds.length === 0) return toast.error("취소할 메뉴를 하나 이상 선택해주세요.");
 
         try {
-            await axios.post(`${API_BASE_URL}/orders/${cancelModal.order.id}/cancel`, 
-                { 
-                    reason: cancelModal.reason || "관리자 메뉴 부분 취소", 
-                    cancelled_item_ids: cancelModal.selectedItemIds 
-                }, 
+            await axios.post(`${API_BASE_URL}/orders/${cancelModal.order.id}/cancel`,
+                {
+                    reason: cancelModal.reason || "관리자 메뉴 부분 취소",
+                    cancelled_item_ids: cancelModal.selectedItemIds
+                },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             toast.success(`선택한 메뉴가 부분 취소되었습니다.`);
@@ -1487,90 +1587,223 @@ export function AdminOrders({ store, token }) {
         }
     };
 
+    const handleCollectPayment = async () => {
+        if (!collectModal?.method) return toast.error("결제 수단을 선택해주세요.");
+        try {
+            await axios.patch(
+                `${API_BASE_URL}/orders/${collectModal.order.id}/collect-payment`,
+                { payment_method: collectModal.method },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("수납이 완료되었습니다.");
+            setCollectModal(null);
+            fetchOrders();
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "수납 처리에 실패했습니다.");
+        }
+    };
+
+    const handleExportCSV = () => {
+        const PAY_LABEL = { card: "카드", CARD: "카드", cash: "현금", CASH: "현금", 후불: "후불", 기타: "기타" };
+        const TYPE_LABEL = { DINE_IN: "홀", TAKEOUT: "포장" };
+        const STATUS_LABEL = { PAID: "완료", CANCELLED: "취소", PARTIAL_CANCELLED: "부분취소", DEFERRED: "후불" };
+        const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+        const rows = [
+            ["주문일시", "번호", "테이블", "유형", "주문메뉴", "결제수단", "결제금액", "상태"].map(esc).join(","),
+            ...filteredOrders.map(o => {
+                const cancelledAmt = o.items?.filter(i => i.is_cancelled).reduce((s, i) => s + i.price * i.quantity, 0) || 0;
+                const finalAmt = o.payment_status === "PARTIAL_CANCELLED"
+                    ? o.total_price - cancelledAmt
+                    : (o.payment_status === "CANCELLED" ? 0 : (o.paid_amount || o.total_price || 0));
+                const menuSummary = o.items?.filter(i => !i.is_cancelled).map(i => `${i.menu_name}×${i.quantity}`).join(" / ") || "";
+                return [
+                    new Date(o.created_at).toLocaleString("ko-KR"),
+                    `${o.daily_number}번`,
+                    o.table_name || "",
+                    TYPE_LABEL[o.order_type] || o.order_type,
+                    menuSummary,
+                    o.payment_method ? (PAY_LABEL[o.payment_method] || o.payment_method) : "",
+                    finalAmt,
+                    STATUS_LABEL[o.payment_status] || o.payment_status,
+                ].map(esc).join(",");
+            })
+        ];
+
+        const csv = "﻿" + rows.join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `주문내역_${startDate}_${endDate}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     return (
-        // ✨ 1. h-full, flex-col, overflow-hidden을 사용하여 바깥쪽 브라우저의 이중 스크롤을 완벽 차단합니다.
         <div className="bg-white p-4 lg:p-6 rounded-2xl shadow-sm border border-gray-200 animate-fadeIn h-[calc(100vh-120px)] flex flex-col overflow-hidden">
-            
-            {/* 상단 헤더 영역 (shrink-0으로 고정하여 찌그러지지 않게 방어) */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 shrink-0">
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">🧾 주문 및 결제 내역 (환불 처리)</h2>
-                <button onClick={fetchOrders} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 flex items-center gap-2 transition">
-                    🔄 새로고침
-                </button>
+
+            {/* 헤더 + 날짜 필터 */}
+            <div className="shrink-0 space-y-3 mb-4">
+                {/* 타이틀 행 */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-800">🧾 주문 및 결제 내역</h2>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleExportCSV} className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg font-bold hover:bg-emerald-600 hover:text-white flex items-center gap-1.5 transition text-sm">
+                            📥 CSV
+                        </button>
+                        <button onClick={() => fetchOrders()} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 flex items-center gap-2 transition text-sm">
+                            🔄 새로고침
+                        </button>
+                    </div>
+                </div>
+
+                {/* 날짜 필터 행 */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {[["today","오늘"],["yesterday","어제"],["week","최근 7일"],["month","이번달"]].map(([k,l]) => (
+                        <button key={k} onClick={() => setRange(k)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-indigo-100 hover:text-indigo-700 transition">{l}</button>
+                    ))}
+                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded-xl">
+                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200 text-sm" />
+                        <span className="text-gray-400 font-bold">~</span>
+                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white px-2 py-1 rounded-lg font-bold text-gray-700 outline-none border border-gray-200 text-sm" />
+                    </div>
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="메뉴명·테이블·번호 검색"
+                        className="bg-white border border-gray-200 px-3 py-1.5 rounded-xl text-sm font-medium text-gray-700 outline-none focus:border-indigo-400 w-44"
+                    />
+                    <span className="text-xs text-gray-400 font-bold">
+                        {searchQuery ? `${filteredOrders.length} / ${orders.length}건` : `${orders.length}건`}
+                    </span>
+                </div>
+
+                {/* 요약 통계 카드 */}
+                {(() => {
+                    const valid = filteredOrders.filter(o => o.payment_status !== "CANCELLED");
+                    const revenue = valid.reduce((sum, o) => {
+                        if (o.payment_status === "PARTIAL_CANCELLED") {
+                            const cancelled = o.items?.filter(i => i.is_cancelled).reduce((s, i) => s + i.price * i.quantity, 0) || 0;
+                            return sum + (o.total_price - cancelled);
+                        }
+                        return sum + (o.paid_amount || o.total_price || 0);
+                    }, 0);
+                    const deferredCnt = filteredOrders.filter(o => o.payment_status === "DEFERRED").length;
+                    const avg = valid.length > 0 ? Math.round(revenue / valid.length) : 0;
+                    return (
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+                                <p className="text-xs text-indigo-400 font-bold mb-0.5">총 매출</p>
+                                <p className="text-lg font-black text-indigo-700">{revenue.toLocaleString()}원</p>
+                            </div>
+                            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 text-center">
+                                <p className="text-xs text-gray-400 font-bold mb-0.5">주문 건수</p>
+                                <p className="text-lg font-black text-gray-700">{valid.length}건</p>
+                            </div>
+                            <div className={`border rounded-xl p-3 text-center ${deferredCnt > 0 ? "bg-amber-50 border-amber-100" : "bg-gray-50 border-gray-100"}`}>
+                                <p className={`text-xs font-bold mb-0.5 ${deferredCnt > 0 ? "text-amber-500" : "text-gray-400"}`}>미수납(후불)</p>
+                                <p className={`text-lg font-black ${deferredCnt > 0 ? "text-amber-600" : "text-gray-700"}`}>{deferredCnt}건</p>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* ✨ 2. flex-1과 overflow-auto를 적용하여 '표 내부에서만' 예쁘게 스크롤되도록 만듭니다. */}
             <div className="flex-1 overflow-auto border border-gray-200 rounded-xl relative bg-white">
                 
                 {/* ✨ 3. 표 최소 너비를 700px로 확 줄여서 웬만한 화면에선 가로 스크롤 없이 꽉 차게 변경! */}
-                <table className="w-full text-left border-collapse min-w-[700px]">
-                    {/* ✨ 4. sticky 속성으로 스크롤을 내려도 테이블 헤더(분류명)가 항상 상단에 고정됩니다. */}
+                <table className="w-full text-left border-collapse min-w-[780px]">
                     <thead className="sticky top-0 z-10 shadow-sm">
                         <tr className="bg-slate-900 text-white text-sm">
                             <th className="p-3 font-bold w-24 text-center">주문일시</th>
-                            <th className="p-3 font-bold w-20 text-center">대기번호</th>
-                            <th className="p-3 font-bold w-24 text-center">테이블</th>
+                            <th className="p-3 font-bold w-16 text-center">번호</th>
+                            <th className="p-3 font-bold w-20 text-center">테이블</th>
+                            <th className="p-3 font-bold w-16 text-center">유형</th>
                             <th className="p-3 font-bold">주문 메뉴</th>
-                            <th className="p-3 font-bold w-24 text-right">결제 금액</th>
+                            <th className="p-3 font-bold w-20 text-center">결제수단</th>
+                            <th className="p-3 font-bold w-24 text-right">결제금액</th>
                             <th className="p-3 font-bold w-20 text-center">상태</th>
-                            <th className="p-3 font-bold w-28 text-center">취소 관리</th>
+                            <th className="p-3 font-bold w-28 text-center">관리</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {loading ? <tr><td colSpan="7" className="text-center py-10 font-bold text-gray-400">데이터를 불러오는 중입니다...</td></tr> : null}
-                        {!loading && orders.map(o => {
+                        {loading && <tr><td colSpan="9" className="text-center py-10 font-bold text-gray-400">데이터를 불러오는 중입니다...</td></tr>}
+                        {!loading && filteredOrders.length === 0 && <tr><td colSpan="9" className="text-center py-10 font-bold text-gray-400">{searchQuery ? "검색 결과가 없습니다." : "해당 기간의 주문이 없습니다."}</td></tr>}
+                        {!loading && filteredOrders.map(o => {
                             const cancelledAmt = o.items?.filter(i => i.is_cancelled).reduce((sum, i) => sum + (i.price * i.quantity), 0) || 0;
                             const finalAmt = o.total_price - cancelledAmt;
+                            const PAY_METHOD = { card: "카드", CARD: "카드", cash: "현금", CASH: "현금", 후불: "후불", 기타: "기타" };
+                            const ORDER_TYPE = { DINE_IN: "홀", TAKEOUT: "포장" };
+                            const STATUS_STYLE = {
+                                PAID: "bg-green-100 text-green-700",
+                                CANCELLED: "bg-red-100 text-red-700",
+                                PARTIAL_CANCELLED: "bg-yellow-100 text-yellow-800",
+                                DEFERRED: "bg-amber-100 text-amber-700",
+                            };
+                            const STATUS_LABEL = { PAID: "완료", CANCELLED: "취소", PARTIAL_CANCELLED: "부분취소", DEFERRED: "후불" };
 
                             return (
-                                <tr key={o.id} className={`border-b border-gray-100 transition ${o.payment_status === "CANCELLED" ? "bg-red-50/30 opacity-70" : "hover:bg-gray-50"}`}>
+                                <tr
+                                    key={o.id}
+                                    onClick={() => setDetailOrder(o)}
+                                    className={`border-b border-gray-100 cursor-pointer transition ${o.payment_status === "CANCELLED" ? "bg-red-50/30 opacity-60 hover:opacity-80" : "hover:bg-indigo-50/40"}`}
+                                >
                                     <td className="p-3 text-center text-xs text-gray-500 font-medium">
                                         {new Date(o.created_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                     </td>
-                                    <td className="p-3 text-center font-black text-gray-800 text-base">{o.daily_number}번</td>
+                                    <td className="p-3 text-center font-black text-gray-800">{o.daily_number}번</td>
                                     <td className="p-3 text-center font-bold text-indigo-600 text-sm">{o.table_name}</td>
-                                    
+                                    <td className="p-3 text-center text-xs font-bold text-gray-500">{ORDER_TYPE[o.order_type] || o.order_type}</td>
                                     <td className="p-3 text-sm font-bold text-gray-700">
-                                        <div className="flex flex-col gap-0.5 max-h-24 overflow-y-auto pr-1">
+                                        <div className="flex flex-col gap-0.5 max-h-16 overflow-hidden">
                                             {o.items?.map(i => (
-                                                <span key={i.id} className={i.is_cancelled ? "line-through text-red-400 font-medium" : "truncate"}>
-                                                    {i.menu_name} <span className="text-xs text-gray-400">x{i.quantity}</span>
+                                                <span key={i.id} className={i.is_cancelled ? "line-through text-red-400 font-medium text-xs" : "truncate"}>
+                                                    {i.menu_name} <span className="text-xs text-gray-400">×{i.quantity}</span>
                                                 </span>
                                             ))}
                                         </div>
                                     </td>
-
+                                    <td className="p-3 text-center text-xs font-bold text-gray-600">
+                                        {o.payment_method ? (PAY_METHOD[o.payment_method] || o.payment_method) : "-"}
+                                    </td>
                                     <td className="p-3 text-right">
                                         {o.payment_status === "PARTIAL_CANCELLED" ? (
                                             <div className="flex flex-col items-end">
-                                                <span className="text-gray-400 line-through text-[11px] font-normal">{o.total_price.toLocaleString()}원</span>
-                                                <span className="font-black text-red-600">{finalAmt.toLocaleString()}원</span>
-                                                <span className="text-[10px] text-yellow-600">(-{cancelledAmt.toLocaleString()}원)</span>
+                                                <span className="text-gray-400 line-through text-[11px]">{o.total_price.toLocaleString()}원</span>
+                                                <span className="font-black text-red-600 text-sm">{finalAmt.toLocaleString()}원</span>
                                             </div>
                                         ) : o.payment_status === "CANCELLED" ? (
-                                            <div className="flex flex-col items-end">
-                                                <span className="text-gray-400 line-through text-xs font-normal">{o.total_price.toLocaleString()}원</span>
-                                                <span className="font-black text-red-600">0원</span>
-                                            </div>
+                                            <span className="font-black text-red-400 line-through text-sm">{o.total_price.toLocaleString()}원</span>
                                         ) : (
-                                            <span className="font-black text-gray-900">{o.total_price.toLocaleString()}원</span>
+                                            <span className="font-black text-gray-900 text-sm">{(o.paid_amount || o.total_price || 0).toLocaleString()}원</span>
                                         )}
                                     </td>
-
                                     <td className="p-3 text-center">
-                                        {o.payment_status === "PAID" && <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm">결제완료</span>}
-                                        {o.payment_status === "CANCELLED" && <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm">전체취소</span>}
-                                        {o.payment_status === "PARTIAL_CANCELLED" && <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-[11px] font-bold shadow-sm">부분취소</span>}
+                                        <span className={`px-2 py-1 rounded text-[11px] font-bold ${STATUS_STYLE[o.payment_status] || "bg-gray-100 text-gray-600"}`}>
+                                            {STATUS_LABEL[o.payment_status] || o.payment_status}
+                                        </span>
                                     </td>
-                                    
-                                    <td className="p-3 text-center">
-                                        <button 
-                                            onClick={() => setCancelActionOrder(o)} 
-                                            disabled={o.payment_status === "CANCELLED"}
-                                            className="bg-red-50 hover:bg-red-500 hover:text-white disabled:bg-gray-100 disabled:text-gray-400 disabled:border-transparent border border-red-200 text-red-600 text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-sm"
-                                        >
-                                            {o.payment_status === "CANCELLED" ? "취소불가" : "결제 취소"}
-                                        </button>
+                                    <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
+                                        <div className="flex flex-col gap-1 items-center">
+                                            {o.payment_status === "DEFERRED" && (
+                                                <button
+                                                    onClick={() => setCollectModal({ order: o, method: "cash" })}
+                                                    className="bg-amber-50 hover:bg-amber-500 hover:text-white border border-amber-300 text-amber-700 text-xs font-bold px-2 py-1.5 rounded-lg transition w-full"
+                                                >
+                                                    💰 수납
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => setCancelActionOrder(o)}
+                                                disabled={o.payment_status === "CANCELLED"}
+                                                className="bg-red-50 hover:bg-red-500 hover:text-white disabled:bg-gray-100 disabled:text-gray-400 disabled:border-transparent border border-red-200 text-red-600 text-xs font-bold px-2 py-1.5 rounded-lg transition w-full"
+                                            >
+                                                {o.payment_status === "CANCELLED" ? "불가" : "취소"}
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             );
@@ -1620,14 +1853,14 @@ export function AdminOrders({ store, token }) {
                             <h3 className="font-extrabold text-xl text-gray-900">🍔 취소할 메뉴 선택</h3>
                             <p className="text-sm text-gray-500 mt-1">대기번호 <span className="font-bold text-indigo-600">{cancelModal.order.daily_number}번</span> 주문</p>
                         </div>
-                        
+
                         <div className="space-y-2 mb-4 max-h-48 overflow-y-auto pr-2">
                             {cancelModal.order.items.map(item => {
                                 const isAlreadyCancelled = item.is_cancelled;
                                 return (
                                     <label key={item.id} className={`flex justify-between items-center p-3 border rounded-xl cursor-pointer transition ${isAlreadyCancelled ? 'bg-gray-100 opacity-50' : 'hover:bg-indigo-50 border-gray-200'}`}>
                                         <div className="flex items-center gap-3">
-                                            <input type="checkbox" 
+                                            <input type="checkbox"
                                                 className="w-5 h-5 accent-indigo-600 cursor-pointer"
                                                 disabled={isAlreadyCancelled}
                                                 checked={cancelModal.selectedItemIds.includes(item.id)}
@@ -1653,10 +1886,155 @@ export function AdminOrders({ store, token }) {
                         <div className="mb-6">
                             <input type="text" className="w-full border border-gray-300 p-2.5 rounded-lg text-sm outline-none focus:border-indigo-500 bg-gray-50 focus:bg-white transition" placeholder="취소 사유 메모 (선택사항)" value={cancelModal.reason} onChange={e=>setCancelModal({...cancelModal, reason: e.target.value})} />
                         </div>
-                        
+
                         <div className="flex gap-2">
                             <button onClick={handlePartialCancel} disabled={cancelModal.selectedItemIds.length === 0} className="flex-1 bg-red-600 disabled:bg-gray-300 text-white py-3 rounded-xl font-bold shadow-md hover:bg-red-700 transition">선택 메뉴 취소하기</button>
                             <button onClick={() => setCancelModal({ isOpen: false, order: null, selectedItemIds: [], reason: "" })} className="w-24 bg-gray-200 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-300 transition">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 후불 수납 모달 */}
+            {collectModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={() => setCollectModal(null)}>
+                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b">
+                            <h3 className="font-extrabold text-xl text-gray-900">💰 후불 수납 처리</h3>
+                            <p className="text-sm text-gray-500 mt-1">
+                                대기 <span className="font-bold text-amber-600">{collectModal.order.daily_number}번</span> ·
+                                <span className="font-bold text-gray-700 ml-1">{(collectModal.order.paid_amount || collectModal.order.total_price || 0).toLocaleString()}원</span>
+                            </p>
+                        </div>
+                        <div className="p-5 space-y-3">
+                            <p className="text-sm font-bold text-gray-600 mb-1">결제 수단 선택</p>
+                            {[["cash", "현금"], ["card", "카드"], ["기타", "기타"]].map(([val, label]) => (
+                                <label key={val} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition ${collectModal.method === val ? "bg-amber-50 border-amber-400" : "border-gray-200 hover:bg-gray-50"}`}>
+                                    <input
+                                        type="radio"
+                                        name="collect_method"
+                                        value={val}
+                                        checked={collectModal.method === val}
+                                        onChange={() => setCollectModal(prev => ({ ...prev, method: val }))}
+                                        className="accent-amber-500 w-4 h-4"
+                                    />
+                                    <span className={`font-bold text-sm ${collectModal.method === val ? "text-amber-700" : "text-gray-700"}`}>{label}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="p-4 border-t flex gap-2">
+                            <button
+                                onClick={handleCollectPayment}
+                                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl transition"
+                            >
+                                수납 완료
+                            </button>
+                            <button
+                                onClick={() => setCollectModal(null)}
+                                className="w-24 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition"
+                            >
+                                취소
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 주문 상세 모달 */}
+            {detailOrder && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={() => setDetailOrder(null)}>
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        {/* 헤더 */}
+                        <div className="p-5 border-b flex justify-between items-start">
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-2xl font-black text-indigo-600">#{detailOrder.daily_number}번</span>
+                                    {(() => {
+                                        const STATUS_STYLE = { PAID: "bg-green-100 text-green-700", CANCELLED: "bg-red-100 text-red-700", PARTIAL_CANCELLED: "bg-yellow-100 text-yellow-800", DEFERRED: "bg-amber-100 text-amber-700" };
+                                        const STATUS_LABEL = { PAID: "완료", CANCELLED: "취소", PARTIAL_CANCELLED: "부분취소", DEFERRED: "후불" };
+                                        return <span className={`px-2 py-0.5 rounded text-xs font-bold ${STATUS_STYLE[detailOrder.payment_status] || "bg-gray-100 text-gray-600"}`}>{STATUS_LABEL[detailOrder.payment_status] || detailOrder.payment_status}</span>;
+                                    })()}
+                                </div>
+                                <p className="text-sm text-gray-500">{new Date(detailOrder.created_at).toLocaleString("ko-KR")}</p>
+                            </div>
+                            <button onClick={() => setDetailOrder(null)} className="text-gray-400 hover:text-gray-700 text-2xl font-bold leading-none mt-0.5">×</button>
+                        </div>
+
+                        {/* 주문 메타 정보 */}
+                        <div className="px-5 py-3 bg-gray-50 border-b grid grid-cols-3 gap-2 text-sm">
+                            <div className="text-center">
+                                <p className="text-gray-400 text-xs mb-0.5">테이블</p>
+                                <p className="font-bold text-gray-800">{detailOrder.table_name || "-"}</p>
+                            </div>
+                            <div className="text-center border-x border-gray-200">
+                                <p className="text-gray-400 text-xs mb-0.5">유형</p>
+                                <p className="font-bold text-gray-800">{detailOrder.order_type === "TAKEOUT" ? "포장" : "홀"}</p>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-gray-400 text-xs mb-0.5">결제수단</p>
+                                <p className="font-bold text-gray-800">
+                                    {detailOrder.payment_method
+                                        ? ({ card: "카드", CARD: "카드", cash: "현금", CASH: "현금", 후불: "후불", 기타: "기타" }[detailOrder.payment_method] || detailOrder.payment_method)
+                                        : "-"}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 주문 항목 목록 */}
+                        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+                            {detailOrder.items?.map(item => (
+                                <div key={item.id} className={`rounded-xl border p-3 ${item.is_cancelled ? "bg-red-50/40 border-red-100 opacity-60" : "bg-white border-gray-100"}`}>
+                                    <div className="flex justify-between items-start">
+                                        <span className={`font-bold text-sm ${item.is_cancelled ? "line-through text-red-400" : "text-gray-800"}`}>
+                                            {item.menu_name}
+                                            <span className="text-gray-400 font-medium ml-1">×{item.quantity}</span>
+                                        </span>
+                                        <span className={`font-bold text-sm ${item.is_cancelled ? "line-through text-red-300" : "text-gray-900"}`}>
+                                            {(item.price * item.quantity).toLocaleString()}원
+                                        </span>
+                                    </div>
+                                    {item.options_desc && item.options_desc.split(",").filter(o => o.trim()).map((opt, idx) => (
+                                        <p key={idx} className="text-xs text-gray-400 mt-0.5 pl-2">└ {opt.trim()}</p>
+                                    ))}
+                                    {item.is_cancelled && (
+                                        <span className="text-[10px] font-bold text-red-400 mt-1 block">취소됨</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* 결제 합계 */}
+                        <div className="px-5 py-3 border-t bg-gray-50">
+                            {detailOrder.payment_status === "PARTIAL_CANCELLED" && (() => {
+                                const cancelledAmt = detailOrder.items?.filter(i => i.is_cancelled).reduce((sum, i) => sum + i.price * i.quantity, 0) || 0;
+                                return (
+                                    <div className="flex justify-between items-center text-sm text-gray-400 mb-1">
+                                        <span>취소 금액</span>
+                                        <span className="line-through">-{cancelledAmt.toLocaleString()}원</span>
+                                    </div>
+                                );
+                            })()}
+                            <div className="flex justify-between items-center">
+                                <span className="font-bold text-gray-700">최종 결제</span>
+                                <span className="font-black text-lg text-gray-900">{(detailOrder.paid_amount || detailOrder.total_price || 0).toLocaleString()}원</span>
+                            </div>
+                        </div>
+
+                        {/* 재출력 버튼 */}
+                        <div className="p-4 border-t flex gap-2">
+                            <button
+                                onClick={() => handleEscReprint(detailOrder)}
+                                disabled={reprinting}
+                                className="flex-1 bg-gray-800 hover:bg-black disabled:bg-gray-300 text-white text-sm font-bold py-2.5 rounded-xl transition"
+                            >
+                                {reprinting ? "출력 중..." : "🖨️ ESC 프린터"}
+                            </button>
+                            <button
+                                onClick={() => handleBrowserReprint(detailOrder)}
+                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-2.5 rounded-xl transition"
+                            >
+                                🌐 브라우저 인쇄
+                            </button>
                         </div>
                     </div>
                 </div>

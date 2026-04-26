@@ -5,17 +5,21 @@ import toast from "react-hot-toast";
 
 // ✨ [신규 추가] 영문 코드를 친화적인 한글 이름으로 바꿔주는 마법의 사전
 const ACTION_MAP = {
-    "CREATE_BRAND": "👑 브랜드 생성",
-    "CREATE_STORE": "🏪 매장 오픈",
-    "UPDATE_STORE": "🏪 매장 수정",
-    "CREATE_MENU": "🍔 메뉴 생성",
-    "UPDATE_MENU": "📝 메뉴 수정",
-    "UPDATE_MENU_PRICE": "💰 가격 변경",
-    "DELETE_MENU": "🗑️ 메뉴 삭제",
-    "CREATE_USER": "👤 계정 생성",
-    "DELETE_USER": "🚫 계정 삭제",
-    "SEND_NOTICE": "📢 공지 발송",
-    "DISTRIBUTE_MENU": "🚀 일괄 배포"
+    "CREATE_BRAND":     "👑 브랜드 생성",
+    "CREATE_STORE":     "🏪 매장 오픈",
+    "UPDATE_STORE":     "🏪 매장 수정",
+    "CREATE_MENU":      "🍔 메뉴 생성",
+    "UPDATE_MENU":      "📝 메뉴 수정",
+    "UPDATE_MENU_PRICE":"💰 가격 변경",
+    "DELETE_MENU":      "🗑️ 메뉴 삭제",
+    "DELETE_CATEGORY":  "🗑️ 카테고리 삭제",
+    "CREATE_USER":      "👤 계정 생성",
+    "DELETE_USER":      "🚫 계정 삭제",
+    "SEND_NOTICE":      "📢 공지 발송",
+    "DISTRIBUTE_MENU":  "🚀 일괄 배포",
+    "COLLECT_PAYMENT":  "💰 후불 수납",
+    "CANCEL":           "❌ 주문 취소",
+    "PARTIAL_CANCEL":   "⚠️ 부분 취소",
 };
 
 // 사전에 등록된 한글이 있으면 한글을, 없으면 원래 영어를 그대로 보여주는 도우미 함수
@@ -31,6 +35,28 @@ export default function HQAuditLog({ token }) {
             const res = await axios.get(`${API_BASE_URL}/admin/audit-logs`, { headers: { Authorization: `Bearer ${token}` } });
             setLogs(res.data);
         } catch (e) { toast.error("감사 로그를 불러오지 못했습니다."); }
+    };
+
+    const handleExportCSV = () => {
+        const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const rows = [
+            ["발생일시", "작업자", "이메일", "작업종류", "상세내용"].map(esc).join(","),
+            ...filteredLogs.map(log => [
+                new Date(log.created_at).toLocaleString("ko-KR"),
+                log.user_name,
+                log.user_email,
+                getActionLabel(log.action),
+                log.details,
+            ].map(esc).join(","))
+        ];
+        const csv = "﻿" + rows.join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `감사로그_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     useEffect(() => { fetchLogs(); }, []);
@@ -77,6 +103,8 @@ export default function HQAuditLog({ token }) {
         
         if (action.includes("STORE")) return <span className="bg-teal-100 text-teal-800 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm whitespace-nowrap">{label}</span>;
         if (action.includes("BRAND")) return <span className="bg-orange-100 text-orange-800 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm whitespace-nowrap">{label}</span>;
+        if (action === "COLLECT_PAYMENT") return <span className="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm whitespace-nowrap">{label}</span>;
+        if (action === "CANCEL" || action === "PARTIAL_CANCEL") return <span className="bg-red-100 text-red-800 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm whitespace-nowrap">{label}</span>;
 
         return <span className="bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm whitespace-nowrap">{label}</span>;
     };
@@ -87,9 +115,14 @@ export default function HQAuditLog({ token }) {
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                     <span className="text-3xl">🕵️</span> 시스템 감사 로그 <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-lg shadow-inner">총 {filteredLogs.length}건</span>
                 </h2>
-                <button onClick={fetchLogs} className="bg-white border border-gray-300 text-gray-600 px-4 py-2.5 rounded-lg font-bold hover:bg-gray-50 transition text-sm flex items-center gap-2 shadow-sm whitespace-nowrap">
-                    🔄 데이터 새로고침
-                </button>
+                <div className="flex items-center gap-2">
+                    <button onClick={handleExportCSV} className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-2.5 rounded-lg font-bold hover:bg-emerald-600 hover:text-white transition text-sm flex items-center gap-2 shadow-sm whitespace-nowrap">
+                        📥 CSV 내보내기
+                    </button>
+                    <button onClick={fetchLogs} className="bg-white border border-gray-300 text-gray-600 px-4 py-2.5 rounded-lg font-bold hover:bg-gray-50 transition text-sm flex items-center gap-2 shadow-sm whitespace-nowrap">
+                        🔄 새로고침
+                    </button>
+                </div>
             </div>
 
             {/* 강력한 검색 및 필터 바 */}
