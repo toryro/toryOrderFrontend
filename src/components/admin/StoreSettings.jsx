@@ -151,7 +151,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                                 <input 
                                     type="checkbox" 
                                     className="sr-only peer"
-                                    checked={useTableBoard} // ✨ storeForm 대신 개별 상태값(useTableBoard) 연결!
+                                    checked={useTableBoard}
                                     onChange={(e) => setUseTableBoard(e.target.checked)} 
                                 />
                                 <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -213,7 +213,6 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                                 )}
                             </div>
                         </div>
-                    </div>
 
                     {isHQ && (
                         <>

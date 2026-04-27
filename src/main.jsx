@@ -4,6 +4,34 @@ import './index.css'
 import App from './App.jsx'
 import axios from 'axios'
 import { API_BASE_URL } from './config.js'
+import * as Sentry from '@sentry/react'
+
+// ── Sentry 에러 모니터링 ─────────────────────────────────────────────────────
+const _sentryDsn = import.meta.env.VITE_SENTRY_DSN
+if (_sentryDsn) {
+    Sentry.init({
+        dsn: _sentryDsn,
+        integrations: [
+            Sentry.browserTracingIntegration(),
+            Sentry.replayIntegration({
+                maskAllText: false,
+                blockAllMedia: false,
+            }),
+        ],
+        tracesSampleRate: 0.1,              // 요청의 10%만 성능 트레이싱
+        replaysSessionSampleRate: 0.0,      // 일반 세션 리플레이 비활성화 (부하 절감)
+        replaysOnErrorSampleRate: 1.0,      // 에러 발생 세션은 100% 리플레이 캡처
+        environment: import.meta.env.MODE,
+        beforeSend(event) {
+            // 401·403은 정상적인 인증 실패이므로 무시
+            const status = event.request?.headers?.['X-HTTP-Status'] ||
+                event.extra?.status
+            if (status === 401 || status === 403) return null
+            return event
+        },
+    })
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ── 전역 axios 인터셉터 설정 ──────────────────────────────────────────────────
 // 모든 axios 요청에 토큰 자동 첨부
@@ -76,6 +104,7 @@ function forceLogout() {
     localStorage.removeItem('token')
     localStorage.removeItem('refreshToken')
     sessionStorage.setItem('sessionExpired', '세션이 만료되었습니다. 다시 로그인해주세요.')
+    Sentry.setUser(null)
     window.location.href = '/'
 }
 // ─────────────────────────────────────────────────────────────────────────────

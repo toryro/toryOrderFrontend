@@ -17,7 +17,7 @@ export function TableDashboard() {
 
     const [selectedTable, setSelectedTable] = useState(null);
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
-    const [clearModal, setClearModal] = useState({ isOpen: false, tableId: null, tableName: "", pendingOrders: [] });
+    const [clearModal, setClearModal] = useState({ isOpen: false, tableId: null, tableName: "", pendingOrders: [], deferredOrders: [] });
     const [collectModal, setCollectModal] = useState({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] });
     const [takeoutLink, setTakeoutLink] = useState(null);
     const [takeoutLoading, setTakeoutLoading] = useState(false);
@@ -57,7 +57,7 @@ export function TableDashboard() {
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === "ping") return;
-            if (["NEW_ORDER", "TABLE_STATUS_CHANGED", "ORDER_COMPLETED", "PAYMENT_COLLECTED"].includes(data.type)) {
+            if (["NEW_ORDER", "TABLE_STATUS_CHANGED", "ORDER_COMPLETED", "PAYMENT_COLLECTED", "ORDER_CANCELLED"].includes(data.type)) {
                 fetchDashboardData();
             }
         };
@@ -128,8 +128,14 @@ export function TableDashboard() {
     };
 
     const handleClearTable = (tableId, tableName) => {
-        const pendingOrders = activeOrders.filter(o => o.table_id === tableId && !o.is_completed);
-        setClearModal({ isOpen: true, tableId, tableName, pendingOrders });
+        // is_completed=true인 DEFERRED 주문도 포함: 조리완료 후 수납 안 된 경우 경고 필요
+        const pendingOrders = activeOrders.filter(
+            o => o.table_id === tableId && !o.is_completed && o.payment_status !== "DEFERRED"
+        );
+        const deferredOrders = activeOrders.filter(
+            o => o.table_id === tableId && o.payment_status === "DEFERRED"
+        );
+        setClearModal({ isOpen: true, tableId, tableName, pendingOrders, deferredOrders });
     };
 
     const executeClearTable = async () => {
@@ -142,7 +148,7 @@ export function TableDashboard() {
             toast.success(`${tableName} 정리가 완료되었습니다.`, { icon: '🧹' });
             fetchDashboardData();
         } catch (err) {
-            toast.error("테이블 초기화에 실패했습니다.");
+            toast.error(err.response?.data?.detail || "테이블 초기화에 실패했습니다.");
         }
     };
 
@@ -321,6 +327,7 @@ export function TableDashboard() {
                 <ClearTableModal
                     tableName={clearModal.tableName}
                     pendingOrders={clearModal.pendingOrders}
+                    deferredOrders={clearModal.deferredOrders}
                     onConfirm={executeClearTable}
                     onCancel={() => setClearModal(prev => ({ ...prev, isOpen: false }))}
                 />
@@ -426,27 +433,51 @@ export function TableDashboard() {
 const COOKING_STATUS_LABEL = { PENDING: "접수 대기", COOKING: "조리 중", COMPLETED: "완료" };
 const COOKING_STATUS_COLOR = { PENDING: "bg-yellow-100 text-yellow-700", COOKING: "bg-blue-100 text-blue-700", COMPLETED: "bg-green-100 text-green-700" };
 
-function ClearTableModal({ tableName, pendingOrders, onConfirm, onCancel }) {
+function ClearTableModal({ tableName, pendingOrders, deferredOrders = [], onConfirm, onCancel }) {
     const hasPending = pendingOrders.length > 0;
+    const hasDeferred = deferredOrders.length > 0;
+    const deferredTotal = deferredOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-                <div className={`px-6 py-5 ${hasPending ? "bg-red-50 border-b border-red-100" : "bg-gray-50 border-b border-gray-100"}`}>
+                <div className={`px-6 py-5 ${hasDeferred ? "bg-amber-50 border-b border-amber-100" : hasPending ? "bg-red-50 border-b border-red-100" : "bg-gray-50 border-b border-gray-100"}`}>
                     <div className="flex items-center gap-3">
-                        <span className="text-3xl">{hasPending ? "⚠️" : "🧹"}</span>
+                        <span className="text-3xl">{hasDeferred ? "💴" : hasPending ? "⚠️" : "🧹"}</span>
                         <div>
                             <h3 className="font-black text-lg text-gray-900">{tableName} 퇴석 처리</h3>
-                            {hasPending
-                                ? <p className="text-red-600 font-bold text-sm mt-0.5">아직 처리되지 않은 주문이 {pendingOrders.length}건 있습니다</p>
-                                : <p className="text-gray-500 text-sm mt-0.5">테이블을 비우고 새 QR을 발급합니다</p>
+                            {hasDeferred
+                                ? <p className="text-amber-700 font-bold text-sm mt-0.5">미수납 {deferredTotal.toLocaleString()}원 — 수납 후 퇴석해주세요</p>
+                                : hasPending
+                                    ? <p className="text-red-600 font-bold text-sm mt-0.5">처리되지 않은 주문이 {pendingOrders.length}건 있습니다</p>
+                                    : <p className="text-gray-500 text-sm mt-0.5">테이블을 비우고 새 QR을 발급합니다</p>
                             }
                         </div>
                     </div>
                 </div>
 
+                {/* 미수납(DEFERRED) 주문 경고 섹션 */}
+                {hasDeferred && (
+                    <div className="px-6 py-4 border-b border-amber-100 bg-amber-50/50 space-y-2">
+                        <p className="text-xs font-black text-amber-800 mb-2">💴 미수납 주문 (수납 완료 후 퇴석 가능)</p>
+                        {deferredOrders.map(order => (
+                            <div key={order.id} className="flex items-center justify-between bg-white border border-amber-200 rounded-xl px-3 py-2">
+                                <div>
+                                    <span className="font-black text-gray-800 text-sm">#{order.daily_number}</span>
+                                    <p className="text-xs text-gray-500 truncate max-w-[200px]">
+                                        {order.items?.filter(i => !i.is_cancelled).map(i => `${i.menu_name} ×${i.quantity}`).join(", ")}
+                                    </p>
+                                </div>
+                                <span className="text-sm font-black text-amber-700 shrink-0">{order.total_price?.toLocaleString()}원</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* 조리 미완료 주문 목록 */}
                 {hasPending && (
-                    <div className="px-6 py-4 max-h-60 overflow-y-auto space-y-2 border-b border-gray-100">
+                    <div className="px-6 py-4 max-h-48 overflow-y-auto space-y-2 border-b border-gray-100">
+                        <p className="text-xs font-black text-red-700 mb-2">⚠️ 조리 미완료 주문 (강제 퇴석 시 취소됨)</p>
                         {pendingOrders.map(order => (
                             <div key={order.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-xl p-3">
                                 <div className="flex-1 min-w-0">
@@ -467,23 +498,21 @@ function ClearTableModal({ tableName, pendingOrders, onConfirm, onCancel }) {
                 )}
 
                 <div className="px-6 py-4 flex flex-col gap-2">
-                    {hasPending && (
-                        <p className="text-xs text-red-500 font-bold text-center mb-1">
-                            강제 퇴석 시 주방의 해당 주문이 취소됩니다
-                        </p>
-                    )}
                     <button
                         onClick={onCancel}
                         className="w-full py-3 rounded-xl font-bold text-base bg-indigo-600 text-white hover:bg-indigo-700 transition active:scale-95"
                     >
-                        돌아가기
+                        {hasDeferred ? "수납 처리하러 가기" : "돌아가기"}
                     </button>
-                    <button
-                        onClick={onConfirm}
-                        className={`w-full py-3 rounded-xl font-bold text-sm transition active:scale-95 ${hasPending ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                    >
-                        {hasPending ? "주방에 알리고 강제 퇴석" : "퇴석 처리"}
-                    </button>
+                    {/* 미수납 주문이 있으면 퇴석 버튼 비활성화 */}
+                    {!hasDeferred && (
+                        <button
+                            onClick={onConfirm}
+                            className={`w-full py-3 rounded-xl font-bold text-sm transition active:scale-95 ${hasPending ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                        >
+                            {hasPending ? "주방에 알리고 강제 퇴석" : "퇴석 처리"}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
