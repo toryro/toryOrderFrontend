@@ -4,6 +4,7 @@ import axios from "axios";
 import toast from "react-hot-toast";
 import { API_BASE_URL } from "../config"; 
 import { StaffOrderModal } from "../components/admin/StaffOrderModal";
+import { CashReceiptForm } from "../components/CashReceiptForm";
 
 export function TableDashboard() {
     const { storeId } = useParams(); 
@@ -19,6 +20,7 @@ export function TableDashboard() {
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [clearModal, setClearModal] = useState({ isOpen: false, tableId: null, tableName: "", pendingOrders: [], deferredOrders: [] });
     const [collectModal, setCollectModal] = useState({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] });
+    const [cashReceiptInput, setCashReceiptInput] = useState(null); // null = 결제수단 선택 중, object = 현금영수증 입력 중
     const [takeoutLink, setTakeoutLink] = useState(null);
     const [takeoutLoading, setTakeoutLoading] = useState(false);
     
@@ -107,24 +109,32 @@ export function TableDashboard() {
         setCollectModal({ isOpen: true, tableId, tableName, deferredOrders });
     };
 
-    const handleCollectPayment = async (paymentMethod) => {
+    const handleCollectPayment = async (paymentMethod, cashReceipt = null) => {
         const { deferredOrders } = collectModal;
         try {
             await Promise.all(
                 deferredOrders.map(o =>
                     axios.patch(
                         `${API_BASE_URL}/orders/${o.id}/collect-payment`,
-                        { payment_method: paymentMethod },
+                        { payment_method: paymentMethod, cash_receipt: cashReceipt },
                         { headers: { Authorization: `Bearer ${token}` } }
                     )
                 )
             );
             setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] });
+            setCashReceiptInput(null);
             toast.success("수납이 완료되었습니다!");
             fetchDashboardData();
         } catch {
             toast.error("수납 처리 실패");
         }
+    };
+
+    const handleCashCollect = () => {
+        const cr = cashReceiptInput?.enabled && cashReceiptInput.identifier
+            ? { identifier_type: cashReceiptInput.identifierType, identifier: cashReceiptInput.identifier, trade_type: cashReceiptInput.tradeType }
+            : null;
+        handleCollectPayment("cash", cr);
     };
 
     const handleClearTable = (tableId, tableName) => {
@@ -334,11 +344,11 @@ export function TableDashboard() {
             )}
 
             {collectModal.isOpen && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] })}>
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] }); setCashReceiptInput(null); }}>
                     <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
                         <div className="bg-emerald-700 text-white p-5 font-bold text-lg flex justify-between items-center">
                             <span className="flex items-center gap-2"><span className="text-2xl">💴</span> 수납 처리</span>
-                            <button onClick={() => setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] })} className="text-emerald-200 hover:text-white text-2xl">&times;</button>
+                            <button onClick={() => { setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] }); setCashReceiptInput(null); }} className="text-emerald-200 hover:text-white text-2xl">&times;</button>
                         </div>
                         <div className="p-6 flex flex-col gap-4">
                             <div className="bg-gray-50 rounded-xl p-4 text-center">
@@ -349,36 +359,61 @@ export function TableDashboard() {
                                 </p>
                             </div>
 
-                            {storeInfo?.has_pos ? (
-                                <button
-                                    onClick={() => handleCollectPayment("POS")}
-                                    className="w-full py-4 rounded-xl font-black text-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
-                                >
-                                    포스기 수납 완료 ✅
-                                </button>
+                            {cashReceiptInput ? (
+                                <>
+                                    <CashReceiptForm value={cashReceiptInput} onChange={setCashReceiptInput} />
+                                    <button
+                                        onClick={handleCashCollect}
+                                        className="w-full py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95"
+                                    >
+                                        현금 수납 완료
+                                    </button>
+                                    <button
+                                        onClick={() => setCashReceiptInput(null)}
+                                        className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
+                                    >
+                                        ← 결제수단 변경
+                                    </button>
+                                </>
+                            ) : storeInfo?.has_pos ? (
+                                <>
+                                    <button
+                                        onClick={() => handleCollectPayment("POS")}
+                                        className="w-full py-4 rounded-xl font-black text-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
+                                    >
+                                        포스기 수납 완료 ✅
+                                    </button>
+                                    <button
+                                        onClick={() => { setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] }); setCashReceiptInput(null); }}
+                                        className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
+                                    >
+                                        취소
+                                    </button>
+                                </>
                             ) : (
-                                <div className="grid grid-cols-2 gap-3">
+                                <>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            onClick={() => handleCollectPayment("card")}
+                                            className="py-4 rounded-xl font-black text-lg bg-indigo-500 hover:bg-indigo-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                        >
+                                            <span className="text-2xl">💳</span> 카드
+                                        </button>
+                                        <button
+                                            onClick={() => setCashReceiptInput({ enabled: false, tradeType: "PERSONAL", identifierType: "phone", identifier: "" })}
+                                            className="py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                        >
+                                            <span className="text-2xl">💵</span> 현금
+                                        </button>
+                                    </div>
                                     <button
-                                        onClick={() => handleCollectPayment("card")}
-                                        className="py-4 rounded-xl font-black text-lg bg-indigo-500 hover:bg-indigo-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                        onClick={() => { setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] }); setCashReceiptInput(null); }}
+                                        className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
                                     >
-                                        <span className="text-2xl">💳</span> 카드
+                                        취소
                                     </button>
-                                    <button
-                                        onClick={() => handleCollectPayment("cash")}
-                                        className="py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
-                                    >
-                                        <span className="text-2xl">💵</span> 현금
-                                    </button>
-                                </div>
+                                </>
                             )}
-
-                            <button
-                                onClick={() => setCollectModal({ isOpen: false, tableId: null, tableName: "", deferredOrders: [] })}
-                                className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
-                            >
-                                취소
-                            </button>
                         </div>
                     </div>
                 </div>

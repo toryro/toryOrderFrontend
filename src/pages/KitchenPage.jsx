@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
 import toast from "react-hot-toast";
+import { CashReceiptForm } from "../components/CashReceiptForm";
 
 function KitchenPage() {
     const { storeId } = useParams();
@@ -14,6 +15,7 @@ function KitchenPage() {
     const [isConnected, setIsConnected] = useState(false);
     const [storeInfo, setStoreInfo] = useState(null);
     const [collectModal, setCollectModal] = useState({ isOpen: false, order: null });
+    const [cashReceiptInput, setCashReceiptInput] = useState(null);
     
     // === 오디오 및 알람 상태 ===
     const [isAudioAllowed, setIsAudioAllowed] = useState(false);
@@ -323,23 +325,31 @@ function KitchenPage() {
         } catch (err) { toast.error("처리 실패"); }
     };
 
-    const handleCollectPayment = async (paymentMethod) => {
+    const handleCollectPayment = async (paymentMethod, cashReceipt = null) => {
         const token = localStorage.getItem("token");
         const { order } = collectModal;
         try {
             await Promise.all(
                 order.ref_order_ids.map(id =>
                     axios.patch(`${API_BASE_URL}/orders/${id}/collect-payment`,
-                        { payment_method: paymentMethod },
+                        { payment_method: paymentMethod, cash_receipt: cashReceipt },
                         { headers: { Authorization: `Bearer ${token}` } }
                     )
                 )
             );
             setCollectModal({ isOpen: false, order: null });
+            setCashReceiptInput(null);
             toast.success("수납이 완료되었습니다!");
         } catch (err) {
             toast.error("수납 처리 실패");
         }
+    };
+
+    const handleCashCollect = () => {
+        const cr = cashReceiptInput?.enabled && cashReceiptInput.identifier
+            ? { identifier_type: cashReceiptInput.identifierType, identifier: cashReceiptInput.identifier, trade_type: cashReceiptInput.tradeType }
+            : null;
+        handleCollectPayment("cash", cr);
     };
 
     const handleCompleteCall = async (callId) => {
@@ -722,11 +732,11 @@ function KitchenPage() {
             )}
 
             {collectModal.isOpen && collectModal.order && (
-                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setCollectModal({ isOpen: false, order: null })}>
+                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => { setCollectModal({ isOpen: false, order: null }); setCashReceiptInput(null); }}>
                     <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fadeIn" onClick={e => e.stopPropagation()}>
                         <div className="bg-emerald-700 text-white p-5 font-bold text-lg flex justify-between items-center">
                             <span className="flex items-center gap-2"><span className="text-2xl">💴</span> 수납 처리</span>
-                            <button onClick={() => setCollectModal({ isOpen: false, order: null })} className="text-emerald-200 hover:text-white text-2xl">&times;</button>
+                            <button onClick={() => { setCollectModal({ isOpen: false, order: null }); setCashReceiptInput(null); }} className="text-emerald-200 hover:text-white text-2xl">&times;</button>
                         </div>
                         <div className="p-6 flex flex-col gap-4">
                             <div className="bg-gray-50 rounded-xl p-4 text-center">
@@ -734,36 +744,61 @@ function KitchenPage() {
                                 <p className="text-3xl font-black text-gray-800">{(collectModal.order.total_price || 0).toLocaleString()}<span className="text-lg font-bold ml-1">원</span></p>
                             </div>
 
-                            {storeInfo?.has_pos ? (
-                                <button
-                                    onClick={() => handleCollectPayment("POS")}
-                                    className="w-full py-4 rounded-xl font-black text-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
-                                >
-                                    포스기 수납 완료 ✅
-                                </button>
+                            {cashReceiptInput ? (
+                                <>
+                                    <CashReceiptForm value={cashReceiptInput} onChange={setCashReceiptInput} />
+                                    <button
+                                        onClick={handleCashCollect}
+                                        className="w-full py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95"
+                                    >
+                                        현금 수납 완료
+                                    </button>
+                                    <button
+                                        onClick={() => setCashReceiptInput(null)}
+                                        className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
+                                    >
+                                        ← 결제수단 변경
+                                    </button>
+                                </>
+                            ) : storeInfo?.has_pos ? (
+                                <>
+                                    <button
+                                        onClick={() => handleCollectPayment("POS")}
+                                        className="w-full py-4 rounded-xl font-black text-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
+                                    >
+                                        포스기 수납 완료 ✅
+                                    </button>
+                                    <button
+                                        onClick={() => { setCollectModal({ isOpen: false, order: null }); setCashReceiptInput(null); }}
+                                        className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
+                                    >
+                                        취소
+                                    </button>
+                                </>
                             ) : (
-                                <div className="grid grid-cols-2 gap-3">
+                                <>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            onClick={() => handleCollectPayment("card")}
+                                            className="py-4 rounded-xl font-black text-lg bg-indigo-500 hover:bg-indigo-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                        >
+                                            <span className="text-2xl">💳</span> 카드
+                                        </button>
+                                        <button
+                                            onClick={() => setCashReceiptInput({ enabled: false, tradeType: "PERSONAL", identifierType: "phone", identifier: "" })}
+                                            className="py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                        >
+                                            <span className="text-2xl">💵</span> 현금
+                                        </button>
+                                    </div>
                                     <button
-                                        onClick={() => handleCollectPayment("card")}
-                                        className="py-4 rounded-xl font-black text-lg bg-indigo-500 hover:bg-indigo-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
+                                        onClick={() => { setCollectModal({ isOpen: false, order: null }); setCashReceiptInput(null); }}
+                                        className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
                                     >
-                                        <span className="text-2xl">💳</span> 카드
+                                        취소
                                     </button>
-                                    <button
-                                        onClick={() => handleCollectPayment("cash")}
-                                        className="py-4 rounded-xl font-black text-lg bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all active:scale-95 flex flex-col items-center gap-1"
-                                    >
-                                        <span className="text-2xl">💵</span> 현금
-                                    </button>
-                                </div>
+                                </>
                             )}
-
-                            <button
-                                onClick={() => setCollectModal({ isOpen: false, order: null })}
-                                className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-all"
-                            >
-                                취소
-                            </button>
                         </div>
                     </div>
                 </div>

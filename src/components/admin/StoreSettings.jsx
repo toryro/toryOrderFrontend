@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { API_BASE_URL } from "../../config";
 import toast from "react-hot-toast";
+import { CashReceiptForm } from "../CashReceiptForm";
 
 // 1. 영업장 정보 관리
 export function AdminStoreInfo({ store, token, fetchStore, user }) { 
@@ -1433,6 +1434,10 @@ export function AdminOrders({ store, token }) {
     const [searchQuery, setSearchQuery] = useState("");
     // 후불 수납 모달
     const [collectModal, setCollectModal] = useState(null); // { order, method }
+    const [cashReceiptInput, setCashReceiptInput] = useState({ enabled: false, tradeType: "PERSONAL", identifierType: "phone", identifier: "" });
+    // 현금영수증 재발급 모달
+    const [reissueModal, setReissueModal] = useState(null); // { order }
+    const [reissueInput, setReissueInput] = useState({ tradeType: "PERSONAL", identifierType: "phone", identifier: "" });
 
     const filteredOrders = orders.filter(o => {
         if (!searchQuery.trim()) return true;
@@ -1588,17 +1593,38 @@ export function AdminOrders({ store, token }) {
 
     const handleCollectPayment = async () => {
         if (!collectModal?.method) return toast.error("결제 수단을 선택해주세요.");
+        const cashReceipt = collectModal.method === "cash" && cashReceiptInput.enabled && cashReceiptInput.identifier
+            ? { identifier_type: cashReceiptInput.identifierType, identifier: cashReceiptInput.identifier, trade_type: cashReceiptInput.tradeType }
+            : null;
         try {
             await axios.patch(
                 `${API_BASE_URL}/orders/${collectModal.order.id}/collect-payment`,
-                { payment_method: collectModal.method },
+                { payment_method: collectModal.method, cash_receipt: cashReceipt },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             toast.success("수납이 완료되었습니다.");
             setCollectModal(null);
+            setCashReceiptInput({ enabled: false, tradeType: "PERSONAL", identifierType: "phone", identifier: "" });
             fetchOrders();
         } catch (err) {
             toast.error(err.response?.data?.detail || "수납 처리에 실패했습니다.");
+        }
+    };
+
+    const handleReissue = async () => {
+        if (!reissueInput.identifier.trim()) return toast.error("식별번호를 입력해주세요.");
+        try {
+            await axios.post(
+                `${API_BASE_URL}/orders/${reissueModal.order.id}/cash-receipt/reissue`,
+                { identifier_type: reissueInput.identifierType, identifier: reissueInput.identifier, trade_type: reissueInput.tradeType },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("현금영수증이 재발급되었습니다.");
+            setReissueModal(null);
+            setReissueInput({ tradeType: "PERSONAL", identifierType: "phone", identifier: "" });
+            fetchOrders();
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "재발급에 실패했습니다.");
         }
     };
 
@@ -1766,7 +1792,19 @@ export function AdminOrders({ store, token }) {
                                         </div>
                                     </td>
                                     <td className="p-3 text-center text-xs font-bold text-gray-600">
-                                        {o.payment_method ? (PAY_METHOD[o.payment_method] || o.payment_method) : "-"}
+                                        <div className="flex flex-col items-center gap-1">
+                                            <span>{o.payment_method ? (PAY_METHOD[o.payment_method] || o.payment_method) : "-"}</span>
+                                            {o.payment_method === "cash" && o.cash_receipt_status && o.cash_receipt_status !== "NONE" && (
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                    o.cash_receipt_status === "ISSUED" ? "bg-emerald-100 text-emerald-700" :
+                                                    o.cash_receipt_status === "FAILED" ? "bg-red-100 text-red-600" :
+                                                    "bg-gray-100 text-gray-500"
+                                                }`}>
+                                                    {o.cash_receipt_status === "ISSUED" ? "영수증✓" :
+                                                     o.cash_receipt_status === "FAILED" ? "발급실패" : "취소됨"}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="p-3 text-right">
                                         {o.payment_status === "PARTIAL_CANCELLED" ? (
@@ -1793,6 +1831,14 @@ export function AdminOrders({ store, token }) {
                                                     className="bg-amber-50 hover:bg-amber-500 hover:text-white border border-amber-300 text-amber-700 text-xs font-bold px-2 py-1.5 rounded-lg transition w-full"
                                                 >
                                                     💰 수납
+                                                </button>
+                                            )}
+                                            {o.payment_method === "cash" && ["FAILED", "CANCELLED", "NONE"].includes(o.cash_receipt_status) && o.payment_status === "PAID" && (
+                                                <button
+                                                    onClick={() => { setReissueModal({ order: o }); setReissueInput({ tradeType: "PERSONAL", identifierType: "phone", identifier: "" }); }}
+                                                    className="bg-emerald-50 hover:bg-emerald-500 hover:text-white border border-emerald-300 text-emerald-700 text-xs font-bold px-2 py-1.5 rounded-lg transition w-full"
+                                                >
+                                                    🧾 영수증
                                                 </button>
                                             )}
                                             <button
@@ -1896,7 +1942,7 @@ export function AdminOrders({ store, token }) {
 
             {/* 후불 수납 모달 */}
             {collectModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={() => setCollectModal(null)}>
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={() => { setCollectModal(null); setCashReceiptInput({ enabled: false, tradeType: "PERSONAL", identifierType: "phone", identifier: "" }); }}>
                     <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
                         <div className="p-5 border-b">
                             <h3 className="font-extrabold text-xl text-gray-900">💰 후불 수납 처리</h3>
@@ -1920,6 +1966,9 @@ export function AdminOrders({ store, token }) {
                                     <span className={`font-bold text-sm ${collectModal.method === val ? "text-amber-700" : "text-gray-700"}`}>{label}</span>
                                 </label>
                             ))}
+                            {collectModal.method === "cash" && (
+                                <CashReceiptForm value={cashReceiptInput} onChange={setCashReceiptInput} />
+                            )}
                         </div>
                         <div className="p-4 border-t flex gap-2">
                             <button
@@ -1929,7 +1978,45 @@ export function AdminOrders({ store, token }) {
                                 수납 완료
                             </button>
                             <button
-                                onClick={() => setCollectModal(null)}
+                                onClick={() => { setCollectModal(null); setCashReceiptInput({ enabled: false, tradeType: "PERSONAL", identifierType: "phone", identifier: "" }); }}
+                                className="w-24 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition"
+                            >
+                                취소
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 현금영수증 재발급 모달 */}
+            {reissueModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[75] p-4" onClick={() => setReissueModal(null)}>
+                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b">
+                            <h3 className="font-extrabold text-xl text-gray-900">🧾 현금영수증 재발급</h3>
+                            <p className="text-sm text-gray-500 mt-1">
+                                {reissueModal.order.daily_number}번 주문 ·{" "}
+                                <span className="font-bold text-gray-700">
+                                    {(reissueModal.order.paid_amount || reissueModal.order.total_price || 0).toLocaleString()}원
+                                </span>
+                            </p>
+                        </div>
+                        <div className="p-5">
+                            <CashReceiptForm
+                                value={{ ...reissueInput, enabled: true }}
+                                onChange={patch => setReissueInput(prev => ({ ...prev, ...(typeof patch === "function" ? patch(prev) : patch) }))}
+                                forceEnabled
+                            />
+                        </div>
+                        <div className="p-4 border-t flex gap-2">
+                            <button
+                                onClick={handleReissue}
+                                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition"
+                            >
+                                발급
+                            </button>
+                            <button
+                                onClick={() => setReissueModal(null)}
                                 className="w-24 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition"
                             >
                                 취소
