@@ -89,7 +89,9 @@ function AdminPage() {
     
     // 사이드바 메뉴 열림/닫힘 상태 관리
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    const [collapsedCats, setCollapsedCats] = useState({});
+    const [collapsedCats, setCollapsedCats] = useState(
+        Object.fromEntries(MENU_CATEGORIES.map(c => [c, true]))
+    );
     const [unreadNotices, setUnreadNotices] = useState([]);
 
     const toggleCat = (cat) => setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }));
