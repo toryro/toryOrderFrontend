@@ -223,10 +223,10 @@ function AdminPage() {
                             <div key={cat}>
                                 <button
                                     onClick={() => toggleCat(cat)}
-                                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-gray-50 transition-colors group"
+                                    className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors group"
                                 >
-                                    <span className="text-[13px] font-bold text-gray-500 group-hover:text-gray-700">{cat}</span>
-                                    <span className="text-[11px] font-bold text-gray-300 group-hover:text-gray-400 leading-none">{collapsed ? "+" : "−"}</span>
+                                    <span className="text-sm font-bold text-gray-600 group-hover:text-gray-800">{cat}</span>
+                                    <span className="text-sm font-bold text-gray-400 group-hover:text-gray-600 leading-none">{collapsed ? "+" : "−"}</span>
                                 </button>
                                 {!collapsed && (
                                     <div className="space-y-0.5 mt-0.5">
