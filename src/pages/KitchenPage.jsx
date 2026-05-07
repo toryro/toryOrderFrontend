@@ -27,6 +27,7 @@ function KitchenPage() {
     
     const myClientId = useRef(`client_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
     const [mutedDelays, setMutedDelays] = useState([]);
+    const initDoneRef = useRef(false);
 
     // === 🔗 병합 및 ✂️ 분할 관련 상태 ===
     const [isMergeMode, setIsMergeMode] = useState(false);
@@ -174,6 +175,18 @@ function KitchenPage() {
 
             if (data.type === "ping") return;
 
+            // 0. 초기 진입 시 서버 스냅샷 복원 (병합/분할 레이아웃 유지)
+            if (data.type === "RESTORE_DISPLAY") {
+                if (!initDoneRef.current) {
+                    initDoneRef.current = true;
+                    if (data.displayOrders && data.displayOrders.length > 0) {
+                        setDisplayOrders(data.displayOrders);
+                    }
+                    fetchInitialData();
+                }
+                return;
+            }
+
             // 1. [신규] 테이블 퇴석(비우기)으로 인한 강제 주문 취소 신호
             if (data.type === "TABLE_STATUS_CHANGED" && data.message === "CANCEL_PENDING_ORDERS") {
                 // 주방 리스트에서 해당 테이블 주문을 즉시 제거
@@ -255,9 +268,17 @@ function KitchenPage() {
     };
 
     useEffect(() => {
-        fetchInitialData(); 
+        initDoneRef.current = false;
         connectWebSocket();
+        // WS 연결 실패 대비: 5초 안에 RESTORE_DISPLAY가 안 오면 직접 초기화
+        const fallbackTimer = setTimeout(() => {
+            if (!initDoneRef.current) {
+                initDoneRef.current = true;
+                fetchInitialData();
+            }
+        }, 5000);
         return () => {
+            clearTimeout(fallbackTimer);
             if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
             if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
         };
