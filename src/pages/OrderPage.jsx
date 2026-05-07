@@ -31,6 +31,7 @@ function OrderPage() {
     const [isVirtual, setIsVirtual] = useState(false);
     const [tableType, setTableType] = useState("DINE_IN");
     const [sessionExpired, setSessionExpired] = useState(false);
+    const [customerPhone, setCustomerPhone] = useState("");
     const sessionTokenRef = useRef(null);
 
     const getActivePrice = (menu) => {
@@ -240,8 +241,9 @@ function OrderPage() {
 
         const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const isTakeoutCounter = tableType === "TAKEOUT_COUNTER";
-        // 가상 세션(1회용 링크)과 포장 카운터는 항상 선불 강제
-        const isPostPayStore = !isVirtual && !isTakeoutCounter && store.payment_policy === "POST_PAY";
+        // 긴급 모드 OR 후불 매장 → is_post_pay=true (PortOne 결제 건너뜀)
+        const isEmergency = store.is_emergency_mode;
+        const isPostPayStore = isEmergency || (!isVirtual && !isTakeoutCounter && store.payment_policy === "POST_PAY");
 
         const itemsData = cart.map(item => ({
             menu_id: item.menuId,
@@ -252,6 +254,7 @@ function OrderPage() {
         }));
 
         try {
+            const isTakeoutOrder = orderType === "TAKEOUT" || isVirtual || isTakeoutCounter;
             const orderRes = await axios.post(`${API_BASE_URL}/orders/`, {
                 store_id: store.id,
                 table_id: tableInfo.id,
@@ -259,6 +262,7 @@ function OrderPage() {
                 is_post_pay: isPostPayStore,
                 order_type: orderType,
                 session_token: sessionTokenRef.current ?? undefined,
+                customer_phone: isTakeoutOrder && customerPhone ? customerPhone.replace(/\D/g, "") : undefined,
             });
             const tempDailyNumber = orderRes.data.daily_number;
 
@@ -267,10 +271,12 @@ function OrderPage() {
                 setCart([]);
                 setIsCartOpen(false);
                 isProcessing.current = false;
-                const payMsg = store.has_pos
-                    ? "주문이 접수되었습니다. 포스기에서 결제해주세요!"
-                    : "주문이 접수되었습니다. 결제는 나갈 때 카운터에서 해주세요!";
-                toast.success(payMsg);
+                const payMsg = isEmergency
+                    ? "주문이 접수됐습니다. 현재 온라인 결제가 일시 중단되어 카운터에서 결제해 주세요."
+                    : store.has_pos
+                        ? "주문이 접수되었습니다. 포스기에서 결제해주세요!"
+                        : "주문이 접수되었습니다. 결제는 나갈 때 카운터에서 해주세요!";
+                toast.success(payMsg, { duration: 5000 });
                 return;
             }
 
@@ -374,6 +380,16 @@ function OrderPage() {
                     <span className="bg-white text-orange-600 text-xs font-black px-3 py-1.5 rounded-full shadow-sm">포장 전용</span>
                 )}
             </div>
+
+            {store.is_emergency_mode && (
+                <div className="bg-red-600 text-white px-4 py-3 flex items-center gap-3">
+                    <span className="text-xl shrink-0">🚨</span>
+                    <p className="text-sm font-bold leading-snug">
+                        현재 온라인 결제가 일시 중단됩니다.<br />
+                        <span className="font-extrabold">주문 후 카운터에서 현금 또는 카드로 결제해 주세요.</span>
+                    </p>
+                </div>
+            )}
 
             <div className="p-4 space-y-8 max-w-lg mx-auto">
                 {store.categories.filter(c=>!c.is_hidden).map(cat => (
@@ -526,6 +542,27 @@ function OrderPage() {
                                     <div className="text-center py-2 bg-orange-50 text-orange-700 rounded-lg font-bold text-sm">🎁 포장 전용 주문입니다.</div>
                                 )}
                             </div>
+
+                            {(orderType === "TAKEOUT" || isVirtual || tableType === "TAKEOUT_COUNTER") && (
+                                <div className="mb-4">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1.5">
+                                        📱 완료 알림 받을 전화번호 <span className="font-normal text-gray-400">(선택)</span>
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        inputMode="numeric"
+                                        placeholder="010-1234-5678"
+                                        value={customerPhone}
+                                        onChange={e => setCustomerPhone(e.target.value)}
+                                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-300 bg-orange-50 placeholder:font-normal placeholder:text-gray-400"
+                                    />
+                                    {customerPhone && (
+                                        <p className="text-xs text-orange-500 mt-1 font-bold">
+                                            포장 완료 시 알림을 보내드립니다.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="flex justify-between items-center mb-4 px-1">
                                 <span className="font-bold text-gray-500">결제 예정 금액</span>

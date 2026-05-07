@@ -225,7 +225,18 @@ function KitchenPage() {
                 return;
             }
 
-            // 6. 그 외 데이터 재로딩이 필요한 타입들
+            // 6. 긴급 모드 변경 알림
+            if (data.type === "EMERGENCY_MODE_CHANGED") {
+                if (data.is_emergency) {
+                    toast.error("🚨 긴급 모드 활성화 — 온라인 결제 차단됨", { duration: 8000 });
+                } else {
+                    toast.success("✅ 긴급 모드 해제 — 정상 운영 복귀", { duration: 4000 });
+                }
+                setStoreInfo(prev => prev ? { ...prev, is_emergency_mode: data.is_emergency } : prev);
+                return;
+            }
+
+            // 7. 그 외 데이터 재로딩이 필요한 타입들
             const reloadTypes = ["NEW_ORDER", "NEW_CALL", "TABLE_STATUS_CHANGED"];
             if (reloadTypes.includes(data.type)) {
                 fetchInitialData();
@@ -482,7 +493,13 @@ function KitchenPage() {
         <div className={`min-h-screen transition-colors duration-500 font-sans pb-24 ${isPlayingAlarm ? "bg-red-50" : "bg-gray-100"}`}>
             <audio ref={audioRef} src="/dingdong.mp3" loop hidden />
 
-            <header className="bg-slate-800 text-white shadow-lg sticky top-0 z-40">
+            {storeInfo?.is_emergency_mode && (
+                <div className="bg-red-600 text-white text-center py-2.5 px-4 font-extrabold text-sm tracking-wide sticky top-0 z-50 animate-pulse">
+                    🚨 긴급 모드 운영 중 — 온라인 결제 차단 / 카운터 결제만 가능
+                </div>
+            )}
+
+            <header className={`bg-slate-800 text-white shadow-lg sticky z-40 ${storeInfo?.is_emergency_mode ? "top-10" : "top-0"}`}>
                 <div className="max-w-8xl mx-auto px-4 py-4 md:px-6 flex justify-between items-center">
                     <div className="flex items-center gap-4">
                         <div className="bg-indigo-500 p-2 rounded-lg"><span className="text-2xl">🍳</span></div>

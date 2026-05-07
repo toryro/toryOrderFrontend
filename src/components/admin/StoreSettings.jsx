@@ -2511,3 +2511,111 @@ PASSWORD=`}<span className="text-yellow-400">yourpassword</span>
         </div>
     );
 }
+
+export function AdminNotificationSettings({ store, token, fetchStore }) {
+    const [notificationType, setNotificationType] = useState(store?.notification_type || "PLATFORM");
+    const [kakaoProfileKey, setKakaoProfileKey] = useState(store?.kakao_profile_key || "");
+    const [smsSenderNumber, setSmsSenderNumber] = useState(store?.sms_sender_number || "");
+    const [saving, setSaving] = useState(false);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            await axios.patch(`${API_BASE_URL}/stores/${store.id}`, {
+                notification_type: notificationType,
+                kakao_profile_key: kakaoProfileKey || null,
+                sms_sender_number: smsSenderNumber || null,
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("알림 설정이 저장되었습니다.");
+            fetchStore();
+        } catch {
+            toast.error("설정 저장 실패");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const typeLabels = {
+        PLATFORM: "플랫폼 공용 채널",
+        OWN: "가게 자체 채널",
+        BRAND: "브랜드 채널",
+        DISABLED: "알림 비활성화",
+    };
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <h2 className="text-2xl font-extrabold text-gray-900">📱 알림 설정</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                    포장 주문 접수 및 완료 시 손님에게 알림톡 / SMS를 발송합니다.
+                </p>
+            </div>
+
+            {/* 채널 타입 선택 */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
+                <h3 className="font-extrabold text-gray-800">발신 채널</h3>
+                <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(typeLabels).map(([value, label]) => (
+                        <button
+                            key={value}
+                            type="button"
+                            onClick={() => setNotificationType(value)}
+                            className={`py-3 px-3 rounded-xl text-sm font-bold border transition ${
+                                notificationType === value
+                                    ? "bg-indigo-50 border-indigo-400 text-indigo-700"
+                                    : "border-gray-200 text-gray-500 bg-white hover:bg-gray-50"
+                            }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+                <div className={`rounded-xl p-3 text-xs font-bold ${
+                    notificationType === "DISABLED" ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-700"
+                }`}>
+                    {notificationType === "PLATFORM" && "플랫폼 대표 채널로 발송됩니다. 별도 설정 없이 바로 사용 가능합니다."}
+                    {notificationType === "OWN" && "아래에 가게 자체 카카오 채널 키와 발신번호를 입력하세요."}
+                    {notificationType === "BRAND" && "브랜드 채널로 발송됩니다. 브랜드 설정에서 채널 키를 등록하세요."}
+                    {notificationType === "DISABLED" && "이 매장의 모든 알림 발송이 비활성화됩니다."}
+                </div>
+            </div>
+
+            {/* OWN 타입일 때만 채널 키 입력 */}
+            {notificationType === "OWN" && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+                    <h3 className="font-extrabold text-gray-800">가게 자체 채널 설정</h3>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">카카오 알림톡 프로필 키</label>
+                        <input
+                            type="text"
+                            value={kakaoProfileKey}
+                            onChange={e => setKakaoProfileKey(e.target.value)}
+                            placeholder="KA01PF..."
+                            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">카카오 비즈니스 채널 발신 프로필 키 (솔라피에서 확인)</p>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">SMS 발신번호</label>
+                        <input
+                            type="tel"
+                            value={smsSenderNumber}
+                            onChange={e => setSmsSenderNumber(e.target.value.replace(/\D/g, ""))}
+                            placeholder="0212345678"
+                            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">솔라피에 등록된 발신번호 (하이픈 제외)</p>
+                    </div>
+                </div>
+            )}
+
+            <button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white py-4 rounded-2xl font-extrabold text-lg shadow-lg transition-all active:scale-95"
+            >
+                {saving ? "저장 중..." : "설정 저장"}
+            </button>
+        </div>
+    );
+}

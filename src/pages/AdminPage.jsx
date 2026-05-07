@@ -20,6 +20,7 @@ import {
     AdminUsers,
     AdminOrders,
     AdminHardwareSettings,
+    AdminNotificationSettings,
 } from "../components/admin/StoreSettings";
 
 
@@ -35,7 +36,8 @@ const MENU_ITEMS = [
     
     // 💡 예시: '계정 관리'를 본사(SUPER_ADMIN, BRAND_ADMIN, GROUP_ADMIN)만 보게 하려면 아래처럼 STORE_OWNER를 빼면 됩니다.
     { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] }, 
-    { id: "hardware", icon: "⚙️", label: "하드웨어 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] }
+    { id: "hardware", icon: "⚙️", label: "하드웨어 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "notification", icon: "📱", label: "알림 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] }
 ];
 
 // ==========================================
@@ -125,8 +127,31 @@ function AdminPage() {
 
         try {
             await axios.patch(`${API_BASE_URL}/stores/${store.id}`, { is_open: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
-            setStore({ ...store, is_open: newStatus }); 
+            setStore({ ...store, is_open: newStatus });
         } catch (err) { toast.error("상태 변경 실패"); }
+    };
+
+    const toggleEmergencyMode = async () => {
+        if (!store) return;
+        const turningOn = !store.is_emergency_mode;
+        const confirmMsg = turningOn
+            ? "⚠️ 긴급 모드를 활성화하면 온라인 결제가 차단되고\n손님은 카운터에서만 결제할 수 있습니다.\n\n계속하시겠습니까?"
+            : "긴급 모드를 해제하고 정상 운영으로 복귀하시겠습니까?";
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            const res = await axios.post(
+                `${API_BASE_URL}/stores/${store.id}/emergency-mode`,
+                {},
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setStore({ ...store, is_emergency_mode: res.data.is_emergency_mode });
+            if (res.data.is_emergency_mode) {
+                toast.error("🚨 긴급 모드 활성화 — 온라인 결제 차단됨", { duration: 6000 });
+            } else {
+                toast.success("✅ 정상 모드 복귀");
+            }
+        } catch { toast.error("긴급 모드 전환 실패"); }
     };
 
     const handleLogout = () => {
@@ -161,6 +186,18 @@ function AdminPage() {
                             <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${store.is_open ? "translate-x-6" : "translate-x-0"}`}></div>
                         </button>
                     </div>
+
+                    {/* 긴급 모드 버튼 */}
+                    <button
+                        onClick={toggleEmergencyMode}
+                        className={`mt-3 w-full py-2.5 rounded-xl font-extrabold text-sm transition-all flex items-center justify-center gap-2 ${
+                            store.is_emergency_mode
+                                ? "bg-red-600 text-white shadow-lg animate-pulse"
+                                : "bg-red-50 text-red-600 border-2 border-red-200 hover:bg-red-100"
+                        }`}
+                    >
+                        {store.is_emergency_mode ? "🚨 긴급모드 해제" : "🚨 긴급 모드"}
+                    </button>
 
                     {["GROUP_ADMIN", "SUPER_ADMIN", "BRAND_ADMIN"].includes(user.role) && (<button onClick={() => navigate("/admin")} className="text-xs text-indigo-600 font-bold mt-4 hover:underline block w-full text-left">← 본사 대시보드</button>)}
                 </div>
@@ -209,6 +246,25 @@ function AdminPage() {
                 </div>
 
                 <div className="flex-1 p-4 lg:p-6 overflow-y-auto bg-gray-50 relative">
+                    {/* 긴급 모드 배너 */}
+                    {store.is_emergency_mode && (
+                        <div className="mb-4 bg-red-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg">
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">🚨</span>
+                                <div>
+                                    <p className="font-extrabold text-base">긴급 모드 운영 중</p>
+                                    <p className="text-red-100 text-sm">온라인 결제가 차단됩니다. 손님은 카운터에서 현금 또는 카드단말기로 결제합니다.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={toggleEmergencyMode}
+                                className="shrink-0 bg-white text-red-600 font-extrabold text-sm px-4 py-2 rounded-xl hover:bg-red-50 transition"
+                            >
+                                해제
+                            </button>
+                        </div>
+                    )}
+
                     {/* 화면을 그릴 때도 권한 체크를 한 번 더 걸어주는 것이 안전합니다 */}
                     {activeTab === "store_notices" && <StoreNoticeBoard token={token} />}
                     {activeTab === "orders" && <AdminOrders store={store} token={token} />}
@@ -220,6 +276,7 @@ function AdminPage() {
                     {activeTab === "sales" && <AdminSales store={store} token={token} />}
                     {activeTab === "users" && <AdminUsers store={store} token={token} />}
                     {activeTab === "hardware" && <AdminHardwareSettings store={store} token={token} fetchStore={fetchStore} />}
+                    {activeTab === "notification" && <AdminNotificationSettings store={store} token={token} fetchStore={fetchStore} />}
                 </div>
             </div>
 
