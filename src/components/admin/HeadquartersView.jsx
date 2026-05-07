@@ -72,6 +72,153 @@ function AdminBrandManagement({ token }) {
     );
 }
 
+// 2-1-b. 브랜드 알림 채널 설정
+function BrandNotificationSettings({ token, user }) {
+    const [brands, setBrands] = useState([]);
+    const [selectedBrandId, setSelectedBrandId] = useState(null);
+    const [kakaoProfileKey, setKakaoProfileKey] = useState("");
+    const [smsSenderNumber, setSmsSenderNumber] = useState("");
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (user.role === "SUPER_ADMIN") {
+            axios.get(`${API_BASE_URL}/brands/`, { headers: { Authorization: `Bearer ${token}` } })
+                .then(res => {
+                    setBrands(res.data);
+                    if (res.data.length > 0) setSelectedBrandId(res.data[0].id);
+                })
+                .catch(() => {});
+        } else {
+            // BRAND_ADMIN: 자신의 브랜드만
+            axios.get(`${API_BASE_URL}/brands/${user.brand_id}`, { headers: { Authorization: `Bearer ${token}` } })
+                .then(res => {
+                    setBrands([res.data]);
+                    setSelectedBrandId(res.data.id);
+                })
+                .catch(() => {});
+        }
+    }, [token, user]);
+
+    useEffect(() => {
+        if (!selectedBrandId) return;
+        const brand = brands.find(b => b.id === selectedBrandId);
+        if (brand) {
+            setKakaoProfileKey(brand.kakao_profile_key || "");
+            setSmsSenderNumber(brand.sms_sender_number || "");
+        }
+    }, [selectedBrandId, brands]);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            await axios.patch(
+                `${API_BASE_URL}/brands/${selectedBrandId}`,
+                { kakao_profile_key: kakaoProfileKey || null, sms_sender_number: smsSenderNumber || null },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setBrands(prev => prev.map(b =>
+                b.id === selectedBrandId
+                    ? { ...b, kakao_profile_key: kakaoProfileKey || null, sms_sender_number: smsSenderNumber || null }
+                    : b
+            ));
+            toast.success("브랜드 알림 채널이 저장되었습니다.");
+        } catch {
+            toast.error("저장 실패");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const selectedBrand = brands.find(b => b.id === selectedBrandId);
+
+    return (
+        <div className="space-y-6 animate-fadeIn max-w-2xl">
+            <div>
+                <h2 className="text-2xl font-bold text-gray-800">📱 브랜드 알림 채널 설정</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                    매장 알림 채널을 "브랜드 채널"로 설정한 매장에 적용됩니다.
+                </p>
+            </div>
+
+            {/* SUPER_ADMIN: 브랜드 선택 */}
+            {user.role === "SUPER_ADMIN" && brands.length > 1 && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-5">
+                    <h3 className="font-extrabold text-gray-800 mb-3">브랜드 선택</h3>
+                    <div className="flex flex-wrap gap-2">
+                        {brands.map(b => (
+                            <button
+                                key={b.id}
+                                onClick={() => setSelectedBrandId(b.id)}
+                                className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${
+                                    selectedBrandId === b.id
+                                        ? "bg-indigo-50 border-indigo-400 text-indigo-700"
+                                        : "border-gray-200 text-gray-500 bg-white hover:bg-gray-50"
+                                }`}
+                            >
+                                {b.name}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {selectedBrand && (
+                <>
+                    {/* 현재 설정 상태 */}
+                    <div className={`rounded-2xl p-4 flex items-center gap-3 ${
+                        selectedBrand.kakao_profile_key
+                            ? "bg-green-50 border border-green-200"
+                            : "bg-amber-50 border border-amber-200"
+                    }`}>
+                        <span className="text-2xl">{selectedBrand.kakao_profile_key ? "✅" : "⚠️"}</span>
+                        <div>
+                            <p className={`font-extrabold text-sm ${selectedBrand.kakao_profile_key ? "text-green-700" : "text-amber-700"}`}>
+                                {selectedBrand.kakao_profile_key ? "채널 키 등록됨 — 알림톡 발송 가능" : "채널 키 미등록 — 플랫폼 공용 채널로 폴백됩니다"}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">브랜드: {selectedBrand.name}</p>
+                        </div>
+                    </div>
+
+                    {/* 채널 키 입력 */}
+                    <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+                        <h3 className="font-extrabold text-gray-800">카카오 알림톡 채널</h3>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">카카오 알림톡 프로필 키</label>
+                            <input
+                                type="text"
+                                value={kakaoProfileKey}
+                                onChange={e => setKakaoProfileKey(e.target.value)}
+                                placeholder="KA01PF..."
+                                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            />
+                            <p className="text-xs text-gray-400 mt-1">카카오 비즈니스 채널 발신 프로필 키 (솔라피에서 확인)</p>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">SMS 발신번호</label>
+                            <input
+                                type="tel"
+                                value={smsSenderNumber}
+                                onChange={e => setSmsSenderNumber(e.target.value.replace(/\D/g, ""))}
+                                placeholder="0212345678"
+                                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            />
+                            <p className="text-xs text-gray-400 mt-1">솔라피에 등록된 발신번호 (하이픈 제외)</p>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white py-4 rounded-2xl font-extrabold text-lg shadow-lg transition-all active:scale-95"
+                    >
+                        {saving ? "저장 중..." : "설정 저장"}
+                    </button>
+                </>
+            )}
+        </div>
+    );
+}
+
 // 2-2. 가맹점 생성
 function HQStoreCreate({ token, onSuccess }) {
     const [name, setName] = useState("");
@@ -763,6 +910,10 @@ export default function HeadquartersView({ user, token }) {
                     <HQMenuButton icon="🚀" label="메뉴 일괄 배포" active={activeTab==="distribution"} onClick={()=>setActiveTab("distribution")} />
                     <HQMenuButton icon="👥" label={user.role==="SUPER_ADMIN"?"전체 계정 관리":"점주 계정 관리"} active={activeTab==="users"} onClick={()=>setActiveTab("users")} />
                     
+                    {/* 브랜드 채널 설정 (SUPER_ADMIN + BRAND_ADMIN 공통) */}
+                    <div className="text-xs font-bold text-slate-500 mb-2 px-2 mt-6">알림 설정</div>
+                    <HQMenuButton icon="📱" label="브랜드 알림 채널" active={activeTab==="brand_notification"} onClick={()=>setActiveTab("brand_notification")} />
+
                     {/* 슈퍼 관리자 전용 */}
                     {user.role === "SUPER_ADMIN" && (
                         <>
@@ -822,6 +973,7 @@ export default function HeadquartersView({ user, token }) {
                     {activeTab === "notice" && <HQNoticeSend token={token} currentUser={user} />}
                     {activeTab === "notice_history" && <HQNoticeHistory token={token} currentUser={user} />}
                     {activeTab === "audit" && <HQAuditLog token={token} />}
+                    {activeTab === "brand_notification" && <BrandNotificationSettings token={token} user={user} />}
                 </div>
             </div>
         </div>
