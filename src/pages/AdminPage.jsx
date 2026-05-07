@@ -10,6 +10,7 @@ import HeadquartersView from "../components/admin/HeadquartersView";
 import AdminMenuManagement from "../components/admin/AdminMenuManagement";
 import StoreNoticeBoard from "../components/admin/StoreNoticeBoard";
 import DailyClosingDashboard from "../components/admin/DailyClosingDashboard";
+import SalesReportDashboard from "../components/admin/SalesReportDashboard";
 
 // 📦 2. 여러 개 묶어둔 설정 컴포넌트들 몽땅 불러오기!
 import {
@@ -17,7 +18,6 @@ import {
     AdminCallOptionManagement,
     AdminHours,
     AdminTables,
-    AdminSales,
     AdminUsers,
     AdminOrders,
     AdminHardwareSettings,
@@ -25,21 +25,25 @@ import {
 } from "../components/admin/StoreSettings";
 
 
-const MENU_ITEMS = [
-    { id: "store_notices", icon: "📢", label: "공지 사항", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "orders", icon: "🧾", label: "주문 결제 내역", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "info", icon: "🏠", label: "영업장 정보", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "menu", icon: "🍽️", label: "메뉴 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "callOptions", icon: "🔔", label: "호출 옵션", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "hours", icon: "⏰", label: "영업 시간", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "tables", icon: "🪑", label: "테이블 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "sales", icon: "💰", label: "매출 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "daily_closing", icon: "🔒", label: "일마감", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+const MENU_CATEGORIES = ["운영", "정산", "매장 설정", "시스템"];
 
-    // 💡 예시: '계정 관리'를 본사(SUPER_ADMIN, BRAND_ADMIN, GROUP_ADMIN)만 보게 하려면 아래처럼 STORE_OWNER를 빼면 됩니다.
-    { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "hardware", icon: "⚙️", label: "하드웨어 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
-    { id: "notification", icon: "📱", label: "알림 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] }
+const MENU_ITEMS = [
+    // ── 운영 ──────────────────────────────────
+    { id: "orders",        icon: "🧾", label: "주문 결제 내역", category: "운영",    roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "store_notices", icon: "📢", label: "공지 사항",      category: "운영",    roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    // ── 정산 ──────────────────────────────────
+    { id: "daily_closing", icon: "🔒", label: "일마감",         category: "정산",    roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "sales",         icon: "📊", label: "매출 리포트",    category: "정산",    roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    // ── 매장 설정 ─────────────────────────────
+    { id: "info",          icon: "🏠", label: "영업장 정보",    category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "menu",          icon: "🍽️", label: "메뉴 관리",     category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "tables",        icon: "🪑", label: "테이블 관리",    category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "hours",         icon: "⏰", label: "영업 시간",      category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "callOptions",   icon: "🔔", label: "호출 옵션",      category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    // ── 시스템 ────────────────────────────────
+    { id: "hardware",      icon: "⚙️", label: "하드웨어 설정", category: "시스템",   roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "notification",  icon: "📱", label: "알림 설정",     category: "시스템",   roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "users",         icon: "👤", label: "계정 관리",      category: "시스템",   roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
 ];
 
 // ==========================================
@@ -205,17 +209,27 @@ function AdminPage() {
                     {["GROUP_ADMIN", "SUPER_ADMIN", "BRAND_ADMIN"].includes(user.role) && (<button onClick={() => navigate("/admin")} className="text-xs text-indigo-600 font-bold mt-4 hover:underline block w-full text-left">← 본사 대시보드</button>)}
                 </div>
                 
-                <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                    {/* ✨ 3. 권한이 확인된 메뉴들만 렌더링합니다 */}
-                    {visibleMenus.map(menu => (
-                        <MenuButton 
-                            key={menu.id}
-                            icon={menu.icon} 
-                            label={menu.label} 
-                            active={activeTab === menu.id} 
-                            onClick={() => setActiveTab(menu.id)} 
-                        />
-                    ))}
+                <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-4">
+                    {MENU_CATEGORIES.map(cat => {
+                        const items = visibleMenus.filter(m => m.category === cat);
+                        if (!items.length) return null;
+                        return (
+                            <div key={cat}>
+                                <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest px-2 mb-1">{cat}</p>
+                                <div className="space-y-0.5">
+                                    {items.map(menu => (
+                                        <MenuButton
+                                            key={menu.id}
+                                            icon={menu.icon}
+                                            label={menu.label}
+                                            active={activeTab === menu.id}
+                                            onClick={() => setActiveTab(menu.id)}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
                     
                     <div className="pt-3 mt-3 border-t border-gray-100">
                         {/* 기존 주방 화면 버튼 */}
@@ -276,7 +290,7 @@ function AdminPage() {
                     {activeTab === "callOptions" && <AdminCallOptionManagement store={store} token={token} />}
                     {activeTab === "hours" && <AdminHours store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
-                    {activeTab === "sales" && <AdminSales store={store} token={token} />}
+                    {activeTab === "sales" && <SalesReportDashboard store={store} token={token} user={user} />}
                     {activeTab === "daily_closing" && <DailyClosingDashboard store={store} token={token} />}
                     {activeTab === "users" && <AdminUsers store={store} token={token} />}
                     {activeTab === "hardware" && <AdminHardwareSettings store={store} token={token} fetchStore={fetchStore} />}

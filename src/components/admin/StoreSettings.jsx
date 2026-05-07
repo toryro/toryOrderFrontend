@@ -3,6 +3,7 @@ import axios from "axios";
 import { API_BASE_URL } from "../../config";
 import toast from "react-hot-toast";
 import { CashReceiptForm } from "../CashReceiptForm";
+import InfoTooltip from "../InfoTooltip";
 
 // 1. 영업장 정보 관리
 export function AdminStoreInfo({ store, token, fetchStore, user }) { 
@@ -145,8 +146,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                         {/* ✨ [수정 완료] 테이블 현황판 사용 설정 */}
                         <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-indigo-200 mt-4 shadow-sm">
                             <div>
-                                <h4 className="font-bold text-gray-800">📊 테이블 현황판 (홀 모니터) 사용</h4>
-                                <p className="text-xs text-gray-500 mt-1">홀 직원을 위한 실시간 테이블 상태(식사 중, 치우기 등) 모니터 기능을 켭니다.</p>
+                                <h4 className="font-bold text-gray-800">📊 테이블 현황판 (홀 모니터) 사용<InfoTooltip text="홀 직원을 위한 실시간 테이블 상태(식사 중, 치우기 등) 모니터 기능을 켭니다." /></h4>
                             </div>
                             <label className="relative inline-flex items-center cursor-pointer">
                                 <input 
@@ -161,8 +161,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                         {/* 테이블 현황판 설정 아래에 추가 */}
                         <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-indigo-200 mt-2 shadow-sm">
                             <div>
-                                <h4 className="font-bold text-gray-800">🖼️ 메뉴 상세 페이지 사용</h4>
-                                <p className="text-xs text-gray-500 mt-1">메뉴 클릭 시 바로 담지 않고 설명과 사진이 있는 상세 페이지를 보여줍니다.</p>
+                                <h4 className="font-bold text-gray-800">🖼️ 메뉴 상세 페이지 사용<InfoTooltip text="메뉴 클릭 시 바로 담지 않고 설명과 사진이 있는 상세 페이지를 보여줍니다." /></h4>
                             </div>
                             <label className="relative inline-flex items-center cursor-pointer">
                                 <input 
@@ -179,8 +178,7 @@ export function AdminStoreInfo({ store, token, fetchStore, user }) {
                             <div className="flex items-center gap-3 mb-4">
                                 <span className="text-2xl">🖥️</span>
                                 <div>
-                                    <h3 className="font-extrabold text-lg text-gray-900">POS 시스템 연동 정책</h3>
-                                    <p className="text-xs text-gray-500 font-bold mt-1">POS기 유무에 따라 결제 방식, 영수증 자동 출력, 후불 수납 UI가 달라집니다.</p>
+                                    <h3 className="font-extrabold text-lg text-gray-900">POS 시스템 연동 정책<InfoTooltip text={"POS기 유무에 따라 결제 방식, 영수증 자동 출력, 후불 수납 UI가 달라집니다.\n\n• POS기 사용: 온라인 결제 OFF, 포스에서 직접 결제\n• POS기 없음: QR 온라인 결제 + 영수증 자동 출력"} /></h3>
                                 </div>
                             </div>
 
