@@ -225,7 +225,7 @@ function AdminPage() {
                                     onClick={() => toggleCat(cat)}
                                     className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-gray-50 transition-colors group"
                                 >
-                                    <span className="text-xs font-bold text-gray-500 group-hover:text-gray-700">{cat}</span>
+                                    <span className="text-[13px] font-bold text-gray-500 group-hover:text-gray-700">{cat}</span>
                                     <span className="text-[11px] font-bold text-gray-300 group-hover:text-gray-400 leading-none">{collapsed ? "+" : "−"}</span>
                                 </button>
                                 {!collapsed && (
@@ -340,13 +340,13 @@ function AdminPage() {
 const MenuButton = ({ icon, label, active, onClick }) => (
     <button
         onClick={onClick}
-        className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-all duration-200 ${
-            active 
-                ? "bg-indigo-50 text-indigo-700 shadow-sm" 
+        className={`w-full text-left px-4 py-2.5 rounded-xl font-bold flex items-center gap-3 transition-all duration-200 text-[13px] ${
+            active
+                ? "bg-indigo-50 text-indigo-700 shadow-sm"
                 : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
         }`}
     >
-        <span className="text-xl">{icon}</span>
+        <span className="text-lg">{icon}</span>
         <span>{label}</span>
     </button>
 );
