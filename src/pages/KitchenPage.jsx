@@ -131,14 +131,21 @@ function KitchenPage() {
 
                     // 부분 취소: 취소된 아이템만 is_cancelled 업데이트
                     if (refOrders.some(o => o.payment_status === 'PARTIAL_CANCELLED')) {
+                        const resolveCancelled = (uniqueId) => {
+                            const parts = uniqueId.split('_');
+                            if (parts[0] !== 'db') return null;
+                            const freshOrder = refOrders.find(o => o.id === parseInt(parts[1]));
+                            const freshItem = freshOrder?.items.find(i => i.id === parseInt(parts[2]));
+                            return freshItem ?? null;
+                        };
                         const updatedItems = disp.items.map(dispItem => {
-                            const parts = dispItem.unique_id.split('_'); // 'db_{orderId}_{itemId}'
-                            const orderId = parseInt(parts[1]);
-                            const itemId  = parseInt(parts[2]);
-                            const freshOrder = refOrders.find(o => o.id === orderId);
-                            if (!freshOrder) return dispItem;
-                            const freshItem = freshOrder.items.find(i => i.id === itemId);
-                            return freshItem ? { ...dispItem, is_cancelled: freshItem.is_cancelled } : dispItem;
+                            // 분할 아이템: _source_id로 원본 DB 아이템 조회
+                            const lookupId = dispItem._source_id || dispItem.unique_id;
+                            const freshItem = resolveCancelled(lookupId);
+                            if (!freshItem) return dispItem;
+                            // 병합 시 수량 합산된 아이템: _extra_ids 중 하나라도 취소면 취소 표시
+                            const extraCancelled = (dispItem._extra_ids || []).some(id => resolveCancelled(id)?.is_cancelled);
+                            return { ...dispItem, is_cancelled: freshItem.is_cancelled || extraCancelled };
                         });
                         return { ...disp, items: updatedItems };
                     }
@@ -401,8 +408,12 @@ function KitchenPage() {
         const combinedItems = [];
         targetCards.flatMap(c => c.items).forEach(item => {
             const existing = combinedItems.find(g => g.menu_name === item.menu_name && g.options_desc === item.options_desc && g.is_cancelled === item.is_cancelled);
-            if (existing) existing.quantity += item.quantity;
-            else combinedItems.push({...item, unique_id: `merged_item_${Date.now()}_${Math.random()}`});
+            if (existing) {
+                existing.quantity += item.quantity;
+                existing._extra_ids = [...(existing._extra_ids || []), item.unique_id];
+            } else {
+                combinedItems.push({ ...item }); // unique_id 원본 보존 (취소 동기화에 필요)
+            }
         });
         const newCard = {
             display_id: `merged_${Date.now()}`,
@@ -459,7 +470,7 @@ function KitchenPage() {
             const remainQty = item.quantity - moveQty;
             
             if (moveQty > 0) {
-                newCardItems.push({ ...item, quantity: moveQty, unique_id: `split_item_${Date.now()}_${Math.random()}` });
+                newCardItems.push({ ...item, quantity: moveQty, unique_id: `split_item_${Date.now()}_${Math.random()}`, _source_id: item.unique_id });
             }
             if (remainQty > 0) {
                 originalCardItems.push({ ...item, quantity: remainQty });

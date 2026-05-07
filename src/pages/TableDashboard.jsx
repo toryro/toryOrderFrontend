@@ -242,6 +242,17 @@ export function TableDashboard() {
                 </div>
             </header>
 
+            {(() => {
+                const pendingTakeouts = activeOrders.filter(o => o.order_type === 'TAKEOUT' && !o.is_completed && o.payment_status !== 'CANCELLED');
+                if (pendingTakeouts.length === 0) return null;
+                return (
+                    <div className="sticky top-[73px] z-20 bg-orange-500 text-white px-4 sm:px-6 py-2.5 flex items-center justify-center gap-2 shadow-md animate-pulse">
+                        <span className="text-lg">🎁</span>
+                        <span className="font-black text-sm">대기 중인 포장 주문 {pendingTakeouts.length}건 — 주방 확인 필요</span>
+                    </div>
+                );
+            })()}
+
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6">
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 mt-4">
                     {tables.map(table => {
