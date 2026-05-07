@@ -89,7 +89,10 @@ function AdminPage() {
     
     // 사이드바 메뉴 열림/닫힘 상태 관리
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [collapsedCats, setCollapsedCats] = useState({});
     const [unreadNotices, setUnreadNotices] = useState([]);
+
+    const toggleCat = (cat) => setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }));
 
     useEffect(() => {
         if (!token) { navigate("/"); return; }
@@ -209,24 +212,33 @@ function AdminPage() {
                     {["GROUP_ADMIN", "SUPER_ADMIN", "BRAND_ADMIN"].includes(user.role) && (<button onClick={() => navigate("/admin")} className="text-xs text-indigo-600 font-bold mt-4 hover:underline block w-full text-left">← 본사 대시보드</button>)}
                 </div>
                 
-                <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-4">
+                <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-1">
                     {MENU_CATEGORIES.map(cat => {
                         const items = visibleMenus.filter(m => m.category === cat);
                         if (!items.length) return null;
+                        const collapsed = !!collapsedCats[cat];
                         return (
                             <div key={cat}>
-                                <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest px-2 mb-1">{cat}</p>
-                                <div className="space-y-0.5">
-                                    {items.map(menu => (
-                                        <MenuButton
-                                            key={menu.id}
-                                            icon={menu.icon}
-                                            label={menu.label}
-                                            active={activeTab === menu.id}
-                                            onClick={() => setActiveTab(menu.id)}
-                                        />
-                                    ))}
-                                </div>
+                                <button
+                                    onClick={() => toggleCat(cat)}
+                                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-gray-50 transition-colors group"
+                                >
+                                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest group-hover:text-gray-500">{cat}</span>
+                                    <span className="text-[11px] font-bold text-gray-300 group-hover:text-gray-400 leading-none">{collapsed ? "+" : "−"}</span>
+                                </button>
+                                {!collapsed && (
+                                    <div className="space-y-0.5 mt-0.5">
+                                        {items.map(menu => (
+                                            <MenuButton
+                                                key={menu.id}
+                                                icon={menu.icon}
+                                                label={menu.label}
+                                                active={activeTab === menu.id}
+                                                onClick={() => setActiveTab(menu.id)}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
