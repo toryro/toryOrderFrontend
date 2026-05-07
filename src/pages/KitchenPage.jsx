@@ -284,8 +284,21 @@ function KitchenPage() {
                 fetchInitialData();
             }
         }, 5000);
+
+        // 맥북 절전 깨어남 대응: 화면 복귀 시 WS 상태 확인 후 재연결
+        const handleVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') return;
+            const ws = wsRef.current;
+            if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+                reconnectAttempt.current = 0;
+                connectWebSocket();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         return () => {
             clearTimeout(fallbackTimer);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
             if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
         };

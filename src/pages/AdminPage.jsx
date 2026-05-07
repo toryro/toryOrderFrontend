@@ -1,6 +1,6 @@
 // src/pages/AdminPage.jsx
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
 import toast from "react-hot-toast";
@@ -9,6 +9,7 @@ import toast from "react-hot-toast";
 import HeadquartersView from "../components/admin/HeadquartersView";
 import AdminMenuManagement from "../components/admin/AdminMenuManagement";
 import StoreNoticeBoard from "../components/admin/StoreNoticeBoard";
+import DailyClosingDashboard from "../components/admin/DailyClosingDashboard";
 
 // 📦 2. 여러 개 묶어둔 설정 컴포넌트들 몽땅 불러오기!
 import {
@@ -33,9 +34,10 @@ const MENU_ITEMS = [
     { id: "hours", icon: "⏰", label: "영업 시간", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
     { id: "tables", icon: "🪑", label: "테이블 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
     { id: "sales", icon: "💰", label: "매출 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    
+    { id: "daily_closing", icon: "🔒", label: "일마감", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+
     // 💡 예시: '계정 관리'를 본사(SUPER_ADMIN, BRAND_ADMIN, GROUP_ADMIN)만 보게 하려면 아래처럼 STORE_OWNER를 빼면 됩니다.
-    { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] }, 
+    { id: "users", icon: "👤", label: "계정 관리", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
     { id: "hardware", icon: "⚙️", label: "하드웨어 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
     { id: "notification", icon: "📱", label: "알림 설정", roles: ["SUPER_ADMIN", "STORE_OWNER"] }
 ];
@@ -74,11 +76,12 @@ function StaffView({ user, storeId }) {
 function AdminPage() {
     const { storeId } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const token = localStorage.getItem("token");
     const [user, setUser] = useState(null);
     const [store, setStore] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState("info");
+    const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "info");
     
     // 사이드바 메뉴 열림/닫힘 상태 관리
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -274,6 +277,7 @@ function AdminPage() {
                     {activeTab === "hours" && <AdminHours store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "tables" && <AdminTables store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "sales" && <AdminSales store={store} token={token} />}
+                    {activeTab === "daily_closing" && <DailyClosingDashboard store={store} token={token} />}
                     {activeTab === "users" && <AdminUsers store={store} token={token} />}
                     {activeTab === "hardware" && <AdminHardwareSettings store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "notification" && <AdminNotificationSettings store={store} token={token} fetchStore={fetchStore} />}
