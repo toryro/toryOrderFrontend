@@ -23,6 +23,7 @@ export function TableDashboard() {
     const [cashReceiptInput, setCashReceiptInput] = useState(null); // null = 결제수단 선택 중, object = 현금영수증 입력 중
     const [takeoutLink, setTakeoutLink] = useState(null);
     const [takeoutLoading, setTakeoutLoading] = useState(false);
+    const [takeoutDetailOrder, setTakeoutDetailOrder] = useState(null);
     
     const wsRef = useRef(null);
     const reconnectTimeout = useRef(null);
@@ -242,17 +243,6 @@ export function TableDashboard() {
                 </div>
             </header>
 
-            {(() => {
-                const pendingTakeouts = activeOrders.filter(o => o.order_type === 'TAKEOUT' && !o.is_completed && o.payment_status !== 'CANCELLED');
-                if (pendingTakeouts.length === 0) return null;
-                return (
-                    <div className="sticky top-[73px] z-20 bg-orange-500 text-white px-4 sm:px-6 py-2.5 flex items-center justify-center gap-2 shadow-md animate-pulse">
-                        <span className="text-lg">🎁</span>
-                        <span className="font-black text-sm">대기 중인 포장 주문 {pendingTakeouts.length}건 — 주방 확인 필요</span>
-                    </div>
-                );
-            })()}
-
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6">
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 mt-4">
                     {tables.map(table => {
@@ -329,7 +319,142 @@ export function TableDashboard() {
                         );
                     })}
                 </div>
+
+                {/* 포장 주문 섹션 */}
+                {(() => {
+                    const pendingTakeouts = activeOrders.filter(o => o.order_type === 'TAKEOUT' && !o.is_completed && o.payment_status !== 'CANCELLED');
+                    if (pendingTakeouts.length === 0) return null;
+                    return (
+                        <div className="mt-10">
+                            <div className="flex items-center gap-3 mb-4">
+                                <h2 className="text-lg font-black text-gray-800 flex items-center gap-2">
+                                    <span>📦</span> 포장 대기
+                                </h2>
+                                <span className="bg-orange-500 text-white text-xs font-black px-2.5 py-1 rounded-full animate-pulse">
+                                    {pendingTakeouts.length}건
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                {pendingTakeouts.map(order => {
+                                    const cookingConfig = {
+                                        PENDING:   { label: "접수 대기", bg: "bg-yellow-100", text: "text-yellow-700", pulse: true },
+                                        COOKING:   { label: "조리 중",   bg: "bg-blue-100",   text: "text-blue-700",   pulse: true },
+                                        COMPLETED: { label: "준비 완료", bg: "bg-green-100",  text: "text-green-700",  pulse: false },
+                                    }[order.cooking_status] || { label: "접수 대기", bg: "bg-yellow-100", text: "text-yellow-700", pulse: true };
+
+                                    const menuSummary = order.items
+                                        ?.filter(i => !i.is_cancelled)
+                                        .map(i => `${i.menu_name} ×${i.quantity}`)
+                                        .join(", ") || "-";
+                                    const elapsed = order.created_at
+                                        ? Math.floor((Date.now() - new Date(order.created_at.replace(' ', 'T')).getTime()) / 60000)
+                                        : null;
+
+                                    return (
+                                        <button
+                                            key={order.id}
+                                            onClick={() => setTakeoutDetailOrder(order)}
+                                            className="text-left rounded-2xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 transition-all duration-200 shadow-sm hover:shadow-md flex flex-col min-h-[180px] overflow-hidden"
+                                        >
+                                            <div className="p-4 flex justify-between items-start">
+                                                <span className="font-black text-xl text-orange-700">#{order.daily_number}</span>
+                                                <span className={`text-[11px] font-black px-2.5 py-1 rounded-full ${cookingConfig.bg} ${cookingConfig.text} ${cookingConfig.pulse ? 'animate-pulse' : ''}`}>
+                                                    {cookingConfig.label}
+                                                </span>
+                                            </div>
+                                            <div className="px-4 flex-1">
+                                                <p className="text-xs text-gray-600 font-bold line-clamp-2">{menuSummary}</p>
+                                                {order.customer_phone && (
+                                                    <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+                                                        <span>📱</span> {order.customer_phone}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="px-4 pb-4 pt-2 flex items-center justify-between">
+                                                <span className="text-sm font-black text-gray-800">{(order.total_price || 0).toLocaleString()}원</span>
+                                                {elapsed !== null && (
+                                                    <span className={`text-xs font-bold ${elapsed >= 15 ? 'text-red-500' : elapsed >= 10 ? 'text-orange-500' : 'text-gray-400'}`}>
+                                                        {elapsed}분 경과
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
+
+            {/* 포장 주문 상세 모달 */}
+            {takeoutDetailOrder && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setTakeoutDetailOrder(null)}>
+                    <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="bg-orange-500 text-white p-5 flex justify-between items-center">
+                            <div>
+                                <p className="text-sm font-bold opacity-80">포장 주문</p>
+                                <h3 className="text-2xl font-black">#{takeoutDetailOrder.daily_number}</h3>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                                {(() => {
+                                    const c = {
+                                        PENDING:   { label: "접수 대기", bg: "bg-yellow-400 text-yellow-900" },
+                                        COOKING:   { label: "조리 중",   bg: "bg-blue-400 text-white" },
+                                        COMPLETED: { label: "준비 완료", bg: "bg-green-400 text-white" },
+                                    }[takeoutDetailOrder.cooking_status] || { label: "접수 대기", bg: "bg-yellow-400 text-yellow-900" };
+                                    return <span className={`text-xs font-black px-3 py-1.5 rounded-full ${c.bg}`}>{c.label}</span>;
+                                })()}
+                                <button onClick={() => setTakeoutDetailOrder(null)} className="text-orange-200 hover:text-white text-2xl leading-none">&times;</button>
+                            </div>
+                        </div>
+
+                        <div className="p-5 flex flex-col gap-4">
+                            {/* 주문 시간 & 경과 */}
+                            <div className="flex items-center justify-between text-sm text-gray-500">
+                                <span>주문 시간: {takeoutDetailOrder.created_at ? new Date(takeoutDetailOrder.created_at.replace(' ', 'T')).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</span>
+                                {takeoutDetailOrder.created_at && (
+                                    <span className={`font-bold ${Math.floor((Date.now() - new Date(takeoutDetailOrder.created_at.replace(' ', 'T')).getTime()) / 60000) >= 15 ? 'text-red-500' : 'text-gray-400'}`}>
+                                        {Math.floor((Date.now() - new Date(takeoutDetailOrder.created_at.replace(' ', 'T')).getTime()) / 60000)}분 경과
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* 고객 연락처 */}
+                            {takeoutDetailOrder.customer_phone && (
+                                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-center gap-2">
+                                    <span className="text-xl">📱</span>
+                                    <div>
+                                        <p className="text-[11px] text-orange-500 font-bold">고객 연락처</p>
+                                        <p className="text-base font-black text-gray-800">{takeoutDetailOrder.customer_phone}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 메뉴 목록 */}
+                            <div className="bg-gray-50 rounded-xl divide-y divide-gray-100 overflow-hidden">
+                                {takeoutDetailOrder.items?.filter(i => !i.is_cancelled).map((item, idx) => (
+                                    <div key={idx} className="px-4 py-3 flex justify-between items-start">
+                                        <div>
+                                            <p className="text-sm font-bold text-gray-800">{item.menu_name} <span className="text-gray-400">×{item.quantity}</span></p>
+                                            {item.options_desc && <p className="text-xs text-gray-400 mt-0.5">{item.options_desc}</p>}
+                                        </div>
+                                        <span className="text-sm font-bold text-gray-700 shrink-0 ml-2">{((item.price || 0) * item.quantity).toLocaleString()}원</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 합계 */}
+                            <div className="flex justify-between items-center pt-1 border-t border-gray-100">
+                                <span className="font-bold text-gray-600">합계</span>
+                                <span className="text-xl font-black text-gray-900">{(takeoutDetailOrder.total_price || 0).toLocaleString()}원</span>
+                            </div>
+
+                            <button onClick={() => setTakeoutDetailOrder(null)} className="w-full py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {isOrderModalOpen && selectedTable && (
                 <StaffOrderModal
