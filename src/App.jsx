@@ -12,6 +12,7 @@ import TableDashboard from "./pages/TableDashboard";
 import OrderPage from "./pages/OrderPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import OrderStatusPage from "./pages/OrderStatusPage";
 
 // JWT payload를 디코딩해서 만료 여부를 클라이언트에서 사전 확인
 function isTokenExpired(token) {
@@ -132,6 +133,9 @@ function App() {
 
                     {/* 2. 손님용 주문 페이지 (QR 토큰으로 접근) */}
                     <Route path="/order/:token" element={<OrderPage />} />
+
+                    {/* 주문 상태 조회 (인증 불필요, HMAC 토큰으로 접근) */}
+                    <Route path="/order-status/:orderId" element={<OrderStatusPage />} />
 
                     {/* 3. 관리자 페이지 (통합) */}
                     <Route

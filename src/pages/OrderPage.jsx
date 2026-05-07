@@ -23,6 +23,7 @@ function OrderPage() {
     const [isCallModalOpen, setIsCallModalOpen] = useState(false);
     const [callOptions, setCallOptions] = useState([]);
 
+    // { dailyNumber, orderId, viewToken }
     const [completedOrder, setCompletedOrder] = useState(null);
     const isProcessing = useRef(false);
 
@@ -115,14 +116,14 @@ function OrderPage() {
                 })
                 .then((res) => {
                     const dailyNum = res.data.daily_number || "확인중";
-                    setCompletedOrder(dailyNum);
+                    setCompletedOrder({ dailyNumber: dailyNum, orderId: res.data.order_id, viewToken: res.data.view_token });
                     setCart([]);
                     setIsCartOpen(false); 
                     navigate(`/order/${token}`, { replace: true });
                 })
                 .catch((err) => {
                     if (err.response?.data?.status === "already_paid") {
-                        setCompletedOrder("완료");
+                        setCompletedOrder({ dailyNumber: "완료", orderId: null, viewToken: null });
                         setCart([]);
                         navigate(`/order/${token}`, { replace: true });
                     } else {
@@ -267,7 +268,7 @@ function OrderPage() {
             const tempDailyNumber = orderRes.data.daily_number;
 
             if (isPostPayStore) {
-                setCompletedOrder(tempDailyNumber);
+                setCompletedOrder({ dailyNumber: tempDailyNumber, orderId: orderRes.data.id, viewToken: orderRes.data.view_token });
                 setCart([]);
                 setIsCartOpen(false);
                 isProcessing.current = false;
@@ -305,14 +306,14 @@ function OrderPage() {
             }, async (rsp) => {
                 if (rsp.success) {
                     try {
-                        await axios.post(`${API_BASE_URL}/payments/complete`, {
+                        const verifyRes = await axios.post(`${API_BASE_URL}/payments/complete`, {
                             imp_uid: rsp.imp_uid,
                             merchant_uid: rsp.merchant_uid,
                             virtual_session_token: isVirtual ? token : undefined,
                             session_token: isTakeoutCounter ? sessionTokenRef.current : undefined,
                         });
-                        
-                        setCompletedOrder(tempDailyNumber);
+
+                        setCompletedOrder({ dailyNumber: tempDailyNumber, orderId: orderRes.data.id, viewToken: verifyRes.data.view_token });
                         setCart([]);
                         setIsCartOpen(false);
                         toast.success("결제 및 주문이 완료되었습니다!");
@@ -680,10 +681,20 @@ function OrderPage() {
                                 <div className="text-6xl mb-4 animate-bounce">🎁</div>
                                 <h2 className="text-2xl font-extrabold text-gray-800 mb-2">포장 주문 완료!</h2>
                                 <p className="text-gray-500 mb-6">결제가 확인되었습니다.<br/>준비되면 번호를 불러드릴게요.</p>
-                                <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-6 mb-6">
+                                <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-6 mb-4">
                                     <p className="text-sm text-orange-500 font-bold mb-1">포장 대기 번호</p>
-                                    <p className="text-6xl font-black text-orange-500 tracking-tighter">#{completedOrder}</p>
+                                    <p className="text-6xl font-black text-orange-500 tracking-tighter">#{completedOrder.dailyNumber}</p>
                                 </div>
+                                {completedOrder.orderId && completedOrder.viewToken && (
+                                    <a
+                                        href={`/order-status/${completedOrder.orderId}?token=${completedOrder.viewToken}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block w-full bg-orange-500 text-white py-3 rounded-xl font-bold text-base mb-4 active:scale-95 transition"
+                                    >
+                                        내 주문 상태 확인하기 →
+                                    </a>
+                                )}
                                 <p className="text-xs text-gray-400 mb-6">이 링크는 결제 완료로 만료되었습니다.</p>
                             </>
                         ) : (
@@ -691,10 +702,20 @@ function OrderPage() {
                                 <div className="text-6xl mb-4 animate-bounce">🎫</div>
                                 <h2 className="text-2xl font-extrabold text-gray-800 mb-2">주문이 접수되었습니다!</h2>
                                 <p className="text-gray-500 mb-6">아래 번호를 기억해주세요.</p>
-                                <div className="bg-indigo-50 border-2 border-indigo-100 rounded-2xl p-6 mb-8">
+                                <div className="bg-indigo-50 border-2 border-indigo-100 rounded-2xl p-6 mb-4">
                                     <p className="text-sm text-indigo-500 font-bold mb-1">나의 주문 번호</p>
-                                    <p className="text-6xl font-black text-indigo-600 tracking-tighter">#{completedOrder}</p>
+                                    <p className="text-6xl font-black text-indigo-600 tracking-tighter">#{completedOrder.dailyNumber}</p>
                                 </div>
+                                {completedOrder.orderId && completedOrder.viewToken && (
+                                    <a
+                                        href={`/order-status/${completedOrder.orderId}?token=${completedOrder.viewToken}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block w-full bg-indigo-500 text-white py-3 rounded-xl font-bold text-base mb-4 active:scale-95 transition"
+                                    >
+                                        내 주문 상태 확인하기 →
+                                    </a>
+                                )}
                             </>
                         )}
                         <button onClick={() => setCompletedOrder(null)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg active:scale-95 transition">확인했습니다 👍</button>
