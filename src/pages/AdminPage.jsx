@@ -22,6 +22,7 @@ import {
     AdminOrders,
     AdminHardwareSettings,
     AdminNotificationSettings,
+    ChangePassword,
 } from "../components/admin/StoreSettings";
 
 
@@ -44,6 +45,7 @@ const MENU_ITEMS = [
     { id: "hardware",      icon: "⚙️", label: "하드웨어 설정", category: "시스템",   roles: ["SUPER_ADMIN", "STORE_OWNER"] },
     { id: "notification",  icon: "📱", label: "알림 설정",     category: "시스템",   roles: ["SUPER_ADMIN", "STORE_OWNER"] },
     { id: "users",         icon: "👤", label: "계정 관리",      category: "시스템",   roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "change_password", icon: "🔑", label: "비밀번호 변경", category: "시스템",   roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
 ];
 
 // ==========================================
@@ -309,6 +311,7 @@ function AdminPage() {
                     {activeTab === "users" && <AdminUsers store={store} token={token} />}
                     {activeTab === "hardware" && <AdminHardwareSettings store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "notification" && <AdminNotificationSettings store={store} token={token} fetchStore={fetchStore} />}
+                    {activeTab === "change_password" && <ChangePassword token={token} />}
                 </div>
             </div>
 

@@ -1367,6 +1367,88 @@ export function AdminSales({ store, token }) {
     );
 }
 
+// 6-1. 비밀번호 변경
+export function ChangePassword({ token }) {
+    const [currentPassword, setCurrentPassword] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (newPassword !== confirmPassword) {
+            toast.error("새 비밀번호가 일치하지 않습니다.");
+            return;
+        }
+        if (newPassword.length < 6) {
+            toast.error("새 비밀번호는 최소 6자 이상이어야 합니다.");
+            return;
+        }
+        setLoading(true);
+        try {
+            await axios.put(
+                `${API_BASE_URL}/auth/change-password`,
+                { current_password: currentPassword, new_password: newPassword },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("비밀번호가 변경되었습니다.");
+            setCurrentPassword("");
+            setNewPassword("");
+            setConfirmPassword("");
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "변경 실패");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 max-w-md">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">🔑 비밀번호 변경</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">현재 비밀번호</label>
+                    <input
+                        type="password"
+                        className="border border-gray-300 w-full p-2.5 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        value={currentPassword}
+                        onChange={e => setCurrentPassword(e.target.value)}
+                        required
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">새 비밀번호</label>
+                    <input
+                        type="password"
+                        className="border border-gray-300 w-full p-2.5 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        placeholder="최소 6자"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        required
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">새 비밀번호 확인</label>
+                    <input
+                        type="password"
+                        className="border border-gray-300 w-full p-2.5 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        required
+                    />
+                </div>
+                <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 mt-2"
+                >
+                    {loading ? "변경 중..." : "비밀번호 변경"}
+                </button>
+            </form>
+        </div>
+    );
+}
+
 // 6. 점주용 계정 관리
 export function AdminUsers({ store, token }) {
     const [users, setUsers] = useState([]);
