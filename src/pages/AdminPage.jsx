@@ -22,6 +22,7 @@ import {
     AdminOrders,
     AdminHardwareSettings,
     AdminNotificationSettings,
+    AdminPaymentConfig,
     ChangePassword,
 } from "../components/admin/StoreSettings";
 
@@ -42,10 +43,11 @@ const MENU_ITEMS = [
     { id: "hours",         icon: "⏰", label: "영업 시간",      category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
     { id: "callOptions",   icon: "🔔", label: "호출 옵션",      category: "매장 설정", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
     // ── 시스템 ────────────────────────────────
-    { id: "hardware",      icon: "⚙️", label: "하드웨어 설정", category: "시스템",   roles: ["SUPER_ADMIN", "STORE_OWNER"] },
-    { id: "notification",  icon: "📱", label: "알림 설정",     category: "시스템",   roles: ["SUPER_ADMIN", "STORE_OWNER"] },
-    { id: "users",         icon: "👤", label: "계정 관리",      category: "시스템",   roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
-    { id: "change_password", icon: "🔑", label: "비밀번호 변경", category: "시스템",   roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "hardware",        icon: "⚙️", label: "하드웨어 설정", category: "시스템", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "notification",    icon: "📱", label: "알림 설정",     category: "시스템", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "payment_config",  icon: "💳", label: "결제 설정",     category: "시스템", roles: ["SUPER_ADMIN", "STORE_OWNER"] },
+    { id: "users",           icon: "👤", label: "계정 관리",     category: "시스템", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
+    { id: "change_password", icon: "🔑", label: "비밀번호 변경", category: "시스템", roles: ["SUPER_ADMIN", "BRAND_ADMIN", "GROUP_ADMIN", "STORE_OWNER"] },
 ];
 
 // ==========================================
@@ -311,6 +313,7 @@ function AdminPage() {
                     {activeTab === "users" && <AdminUsers store={store} token={token} />}
                     {activeTab === "hardware" && <AdminHardwareSettings store={store} token={token} fetchStore={fetchStore} />}
                     {activeTab === "notification" && <AdminNotificationSettings store={store} token={token} fetchStore={fetchStore} />}
+                    {activeTab === "payment_config" && <AdminPaymentConfig store={store} token={token} />}
                     {activeTab === "change_password" && <ChangePassword token={token} />}
                 </div>
             </div>

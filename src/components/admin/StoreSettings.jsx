@@ -2699,3 +2699,244 @@ export function AdminNotificationSettings({ store, token, fetchStore }) {
         </div>
     );
 }
+
+// ─────────────────────────────────────────────
+// 결제 설정 (PortOne v2)
+// ─────────────────────────────────────────────
+export function AdminPaymentConfig({ store, token }) {
+    const [config, setConfig] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [showSecret, setShowSecret] = useState(false);
+
+    const [portoneStoreId, setPortoneStoreId] = useState("");
+    const [portoneApiSecret, setPortoneApiSecret] = useState("");
+    const [channelKey, setChannelKey] = useState("");
+    const [pgProvider, setPgProvider] = useState("tosspayments");
+    const [isActive, setIsActive] = useState(true);
+
+    const PG_OPTIONS = [
+        { value: "tosspayments", label: "토스페이먼츠" },
+        { value: "kakaopay",     label: "카카오페이" },
+        { value: "naverpay",     label: "네이버페이" },
+        { value: "inicis",       label: "KG이니시스" },
+        { value: "nice",         label: "나이스페이먼츠" },
+        { value: "ksnet",        label: "KSNET" },
+        { value: "kcp",          label: "NHN KCP" },
+    ];
+
+    const fetchConfig = async () => {
+        setLoading(true);
+        try {
+            const res = await axios.get(
+                `${API_BASE_URL}/stores/${store.id}/payment-config`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setConfig(res.data);
+            setPortoneStoreId(res.data.portone_store_id || "");
+            setChannelKey(res.data.channel_key || "");
+            setPgProvider(res.data.pg_provider || "tosspayments");
+            setIsActive(res.data.is_active ?? true);
+            setPortoneApiSecret("");  // 보안상 서버에서 내려오지 않음 — 수정 시 다시 입력
+        } catch (err) {
+            if (err.response?.status === 404) {
+                setConfig(null);
+            } else {
+                toast.error("결제 설정 로딩 실패");
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { fetchConfig(); }, [store.id]);
+
+    const handleSave = async () => {
+        if (!portoneStoreId.trim()) return toast.error("포트원 Store ID를 입력해주세요.");
+        if (!channelKey.trim()) return toast.error("채널 키를 입력해주세요.");
+        if (!config && !portoneApiSecret.trim()) return toast.error("API Secret을 입력해주세요.");
+        if (config && !portoneApiSecret.trim()) {
+            const confirmed = window.confirm("API Secret을 비워두면 기존 값이 유지됩니다.\n계속하시겠습니까?");
+            if (!confirmed) return;
+        }
+
+        setSaving(true);
+        try {
+            const body = {
+                portone_store_id: portoneStoreId.trim(),
+                portone_api_secret: portoneApiSecret.trim() || undefined,
+                channel_key: channelKey.trim(),
+                pg_provider: pgProvider,
+                is_active: isActive,
+            };
+            if (!body.portone_api_secret) delete body.portone_api_secret;
+
+            // API Secret이 없을 때는 기존 값 보존을 위해 현재 config를 다시 포함
+            const payload = config && !portoneApiSecret.trim()
+                ? { ...body, portone_api_secret: "__keep__" }
+                : body;
+
+            await axios.put(
+                `${API_BASE_URL}/stores/${store.id}/payment-config`,
+                payload,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("결제 설정이 저장되었습니다.");
+            setPortoneApiSecret("");
+            fetchConfig();
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "저장 실패");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!window.confirm("결제 설정을 삭제하면 온라인 결제가 즉시 불가능해집니다.\n정말 삭제하시겠습니까?")) return;
+        try {
+            await axios.delete(
+                `${API_BASE_URL}/stores/${store.id}/payment-config`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success("결제 설정이 삭제되었습니다.");
+            setConfig(null);
+            setPortoneStoreId(""); setPortoneApiSecret(""); setChannelKey("");
+            setPgProvider("tosspayments"); setIsActive(true);
+        } catch {
+            toast.error("삭제 실패");
+        }
+    };
+
+    if (loading) return <div className="p-10 text-center text-gray-400 font-bold">로딩 중...</div>;
+
+    return (
+        <div className="space-y-6 max-w-2xl">
+            <div>
+                <h2 className="text-2xl font-extrabold text-gray-900">결제 설정</h2>
+                <p className="text-gray-500 text-sm mt-1">PortOne v2 결제 연동 정보를 관리합니다.</p>
+            </div>
+
+            {/* 현재 상태 배너 */}
+            <div className={`rounded-2xl p-4 flex items-center gap-3 ${config ? "bg-green-50 border border-green-200" : "bg-yellow-50 border border-yellow-200"}`}>
+                <span className="text-2xl">{config ? "✅" : "⚠️"}</span>
+                <div>
+                    <p className={`font-extrabold text-sm ${config ? "text-green-700" : "text-yellow-700"}`}>
+                        {config ? "결제 연동 완료" : "결제 설정 없음"}
+                    </p>
+                    <p className={`text-xs mt-0.5 ${config ? "text-green-600" : "text-yellow-600"}`}>
+                        {config
+                            ? `${PG_OPTIONS.find(p => p.value === config.pg_provider)?.label || config.pg_provider} · ${config.is_active ? "활성" : "비활성"}`
+                            : "아래 정보를 입력해야 손님이 온라인 결제를 할 수 있습니다."}
+                    </p>
+                </div>
+            </div>
+
+            {/* 도움말 */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
+                <p className="text-xs font-extrabold text-slate-600">포트원 콘솔에서 확인하는 방법</p>
+                <ol className="text-xs text-slate-500 space-y-1 list-decimal list-inside">
+                    <li>포트원 콘솔(console.portone.io) 로그인</li>
+                    <li><span className="font-bold">결제 연동</span> → 상단 <span className="font-bold">식별코드</span>가 Store ID</li>
+                    <li><span className="font-bold">결제 연동</span> → <span className="font-bold">API Keys</span> 탭 → V2 API Secret</li>
+                    <li><span className="font-bold">결제 연동</span> → <span className="font-bold">채널 관리</span> → 채널 키 복사</li>
+                </ol>
+            </div>
+
+            {/* 입력 폼 */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+                <h3 className="font-extrabold text-gray-800">연동 정보 입력</h3>
+
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">PG사 선택</label>
+                    <select
+                        value={pgProvider}
+                        onChange={e => setPgProvider(e.target.value)}
+                        className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                    >
+                        {PG_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">포트원 Store ID</label>
+                    <input
+                        type="text"
+                        value={portoneStoreId}
+                        onChange={e => setPortoneStoreId(e.target.value)}
+                        placeholder="store-4ff4af41-..."
+                        className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">포트원 콘솔 → 결제 연동 → 상단 식별코드</p>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">
+                        V2 API Secret
+                        {config && <span className="ml-2 text-green-600 font-bold">· 저장됨 (수정 시에만 입력)</span>}
+                    </label>
+                    <div className="relative">
+                        <input
+                            type={showSecret ? "text" : "password"}
+                            value={portoneApiSecret}
+                            onChange={e => setPortoneApiSecret(e.target.value)}
+                            placeholder={config ? "변경하지 않으면 비워두세요" : "V2 API Secret 입력..."}
+                            className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowSecret(p => !p)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                        >
+                            {showSecret ? "숨기기" : "보기"}
+                        </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">포트원 콘솔 → 결제 연동 → API Keys → V2 API Secret</p>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">채널 키 (Channel Key)</label>
+                    <input
+                        type="text"
+                        value={channelKey}
+                        onChange={e => setChannelKey(e.target.value)}
+                        placeholder="channel-key-..."
+                        className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">포트원 콘솔 → 결제 연동 → 채널 관리 → 채널 키</p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                    <div>
+                        <p className="text-sm font-bold text-gray-700">결제 활성화</p>
+                        <p className="text-xs text-gray-400">비활성화하면 온라인 결제가 차단됩니다.</p>
+                    </div>
+                    <button
+                        onClick={() => setIsActive(p => !p)}
+                        className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${isActive ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                        <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isActive ? "translate-x-6" : "translate-x-0"}`} />
+                    </button>
+                </div>
+            </div>
+
+            <button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white py-4 rounded-2xl font-extrabold text-lg shadow-lg transition-all active:scale-95"
+            >
+                {saving ? "저장 중..." : config ? "설정 수정하기" : "결제 연동 등록하기"}
+            </button>
+
+            {config && (
+                <button
+                    onClick={handleDelete}
+                    className="w-full bg-white border-2 border-red-200 text-red-500 hover:bg-red-50 py-3 rounded-2xl font-bold text-sm transition-all"
+                >
+                    결제 설정 삭제
+                </button>
+            )}
+        </div>
+    );
+}

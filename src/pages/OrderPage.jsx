@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
+import * as PortOne from "@portone/browser-sdk/v2";
 import { API_BASE_URL } from "../config";
 import toast from "react-hot-toast";
 
@@ -33,6 +34,7 @@ function OrderPage() {
     const [tableType, setTableType] = useState("DINE_IN");
     const [sessionExpired, setSessionExpired] = useState(false);
     const [customerPhone, setCustomerPhone] = useState("");
+    const [paymentConfig, setPaymentConfig] = useState(null);
     const sessionTokenRef = useRef(null);
 
     const getActivePrice = (menu) => {
@@ -80,6 +82,11 @@ function OrderPage() {
                 const storeRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}`);
                 setStore(storeRes.data);
 
+                try {
+                    const cfgRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}/payment-config/public`);
+                    setPaymentConfig(cfgRes.data);
+                } catch { setPaymentConfig(null); }
+
                 if (!virtual) {
                     try {
                         const callRes = await axios.get(`${API_BASE_URL}/stores/${res.data.store_id}/call-options`);
@@ -99,18 +106,17 @@ function OrderPage() {
     }, [token]);
 
     useEffect(() => {
+        // PortOne v2 모바일 리다이렉트: ?paymentId=xxx&transactionType=payment[&code=xxx]
         const query = new URLSearchParams(location.search);
-        const impUid = query.get("imp_uid");
-        const merchantUid = query.get("merchant_uid");
-        const isSuccess = (query.get("success") === "true") || (query.get("imp_success") === "true");
+        const paymentId = query.get("paymentId");
+        const errorCode = query.get("code");
 
-        if (impUid && !isProcessing.current) {
+        if (paymentId && !isProcessing.current) {
             isProcessing.current = true;
-            if (isSuccess) {
+            if (!errorCode) {
                 const redirectSessionToken = sessionStorage.getItem(`ts_${token}`);
                 axios.post(`${API_BASE_URL}/payments/complete`, {
-                    imp_uid: impUid,
-                    merchant_uid: merchantUid,
+                    payment_id: paymentId,
                     virtual_session_token: isVirtual ? token : undefined,
                     session_token: tableType === "TAKEOUT_COUNTER" ? redirectSessionToken : undefined,
                 })
@@ -118,7 +124,7 @@ function OrderPage() {
                     const dailyNum = res.data.daily_number || "확인중";
                     setCompletedOrder({ dailyNumber: dailyNum, orderId: res.data.order_id, viewToken: res.data.view_token });
                     setCart([]);
-                    setIsCartOpen(false); 
+                    setIsCartOpen(false);
                     navigate(`/order/${token}`, { replace: true });
                 })
                 .catch((err) => {
@@ -132,7 +138,7 @@ function OrderPage() {
                 })
                 .finally(() => { isProcessing.current = false; });
             } else {
-                toast.error("결제가 취소되었습니다.");
+                toast.error(`결제가 취소되었습니다: ${query.get("message") || ""}`);
                 isProcessing.current = false;
                 navigate(`/order/${token}`, { replace: true });
             }
@@ -281,52 +287,49 @@ function OrderPage() {
                 return;
             }
 
-            const { IMP } = window;
-            if (!IMP) {
-                isProcessing.current = false; 
-                return toast.error("포트원 결제 모듈을 불러오지 못했습니다.");
+            if (!paymentConfig) {
+                isProcessing.current = false;
+                return toast.error("결제 설정이 준비되지 않았습니다. 직원에게 문의해주세요.");
             }
-            
-            IMP.init("imp75163120"); 
 
-            const orderName = cart.length > 1 
-                ? `${cart[0].name} 외 ${cart.length - 1}건` 
+            const orderName = cart.length > 1
+                ? `${cart[0].name} 외 ${cart.length - 1}건`
                 : cart[0].name;
 
-            IMP.request_pay({
-                pg: "html5_inicis", 
-                pay_method: "card",
-                merchant_uid: `order_${orderRes.data.id}_${new Date().getTime()}`,
-                name: orderName,
-                amount: totalAmount,
-                buyer_email: "guest@tory.com",
-                buyer_name: "테이블손님",
-                buyer_tel: "010-0000-0000",
-                m_redirect_url: `${window.location.origin}/order/${token}`
-            }, async (rsp) => {
-                if (rsp.success) {
-                    try {
-                        const verifyRes = await axios.post(`${API_BASE_URL}/payments/complete`, {
-                            imp_uid: rsp.imp_uid,
-                            merchant_uid: rsp.merchant_uid,
-                            virtual_session_token: isVirtual ? token : undefined,
-                            session_token: isTakeoutCounter ? sessionTokenRef.current : undefined,
-                        });
+            const paymentId = `order_${orderRes.data.id}_${Date.now()}`;
 
-                        setCompletedOrder({ dailyNumber: tempDailyNumber, orderId: orderRes.data.id, viewToken: verifyRes.data.view_token });
-                        setCart([]);
-                        setIsCartOpen(false);
-                        toast.success("결제 및 주문이 완료되었습니다!");
-                    } catch (verifyErr) {
-                        console.error("검증 에러:", verifyErr);
-                        toast.error("결제는 되었으나 주문 처리에 실패했습니다. 직원을 호출해주세요.");
-                    }
-                } else {
-                    toast.error(`결제가 취소되었거나 실패했습니다: ${rsp.error_msg}`);
-                }
-                
-                isProcessing.current = false; 
+            const rsp = await PortOne.requestPayment({
+                storeId: paymentConfig.portone_store_id,
+                channelKey: paymentConfig.channel_key,
+                paymentId,
+                orderName,
+                totalAmount: totalAmount,
+                currency: "CURRENCY_KRW",
+                payMethod: "CARD",
+                redirectUrl: `${window.location.origin}/order/${token}`,
             });
+
+            if (rsp?.code !== undefined) {
+                // 결제 실패 또는 취소
+                toast.error(`결제가 취소되었거나 실패했습니다: ${rsp.message || ""}`);
+            } else {
+                try {
+                    const verifyRes = await axios.post(`${API_BASE_URL}/payments/complete`, {
+                        payment_id: rsp.paymentId,
+                        virtual_session_token: isVirtual ? token : undefined,
+                        session_token: isTakeoutCounter ? sessionTokenRef.current : undefined,
+                    });
+                    setCompletedOrder({ dailyNumber: tempDailyNumber, orderId: orderRes.data.id, viewToken: verifyRes.data.view_token });
+                    setCart([]);
+                    setIsCartOpen(false);
+                    toast.success("결제 및 주문이 완료되었습니다!");
+                } catch (verifyErr) {
+                    console.error("검증 에러:", verifyErr);
+                    toast.error("결제는 되었으나 주문 처리에 실패했습니다. 직원을 호출해주세요.");
+                }
+            }
+
+            isProcessing.current = false;
 
         } catch (err) {
             if (err.response?.status === 403 && err.response?.data?.detail === "SESSION_EXPIRED") {
